@@ -55,3 +55,14 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 - [ ] 单元测试覆盖率 ≥ 80% (MVP 只要求关键模块)
 - [ ] CI: lint + test + 一个 E2E 回归 (Fake LLM)
 - [ ] 发布流程: 打 tag, 构建 pypi / brew tap
+
+## 自举试跑发现的 gap (2026-04-13)
+
+- [ ] **`cmd_run` 无自动 seed**: 与 `cmd_run_fake` 不一致；必须手写 Python 注入 Task 行。要么 cmd_run 也支持 `--path-whitelist`，要么补一个 `omc task add` 子命令。
+- [ ] **LiteLLM api_base 歧义**: 用户把 `/v1/chat/completions` 填进 `OMC_WORKER_API_BASE` 会 404（litellm 再追加一次路径）。`config.py` 应规范化或报错。
+- [ ] **Codex 跑真实 spec-prompt 极慢**: 在当前机器上 60s+ 还没出结果；默认 `codex_timeout_s=120.0` 吃紧，且会被全局 `~/.codex/superpowers` 技能链污染成本。考虑:
+  - `codex_cli.py` 加参数禁用 superpowers 技能链（`-c features.superpowers=false` 或类似）
+  - 提高默认 `codex_timeout_s` 到 300
+  - 文档提示用户把 Codex 的全局 skills 关掉
+- [ ] **自举尚不完整**: 没有自动"需求→任务拆分"闭环；目前 `omc run` 是单任务驱动，跑完整项目需人工手写每个 task 的 path_whitelist。补一个 `omc plan` 子命令，由 claude -p 或 Codex 读 `requirement.md` 直接切任务并写回 sqlite。
+- [ ] **`docs/projects/**` 不在 `.gitignore`**: 试跑产物被误提交到 main (`council.sqlite3` 二进制 + `requirement.md`)。应加 `docs/projects/*/council.sqlite3` + `docs/projects/*/workspace/` 至少。
