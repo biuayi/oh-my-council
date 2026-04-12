@@ -82,6 +82,59 @@ def _omc_start_impl(*, docs_root: Path, project_id: str, task_id: str) -> dict:
     return {"task_id": task_id, "status": got.status.name if got else "MISSING"}
 
 
+def _find_project_dir(docs_root: Path, slug: str) -> Path | None:
+    """Find project directory matching pattern YYYY-MM-DD-<slug>."""
+    projects_dir = docs_root / "projects"
+    if not projects_dir.exists():
+        return None
+    for d in projects_dir.iterdir():
+        if d.is_dir() and d.name.endswith(f"-{slug}"):
+            return d
+    return None
+
+
+def _project_from_dir(store: ProjectStore, project_dir: Path) -> Project | None:
+    """Get project info from a directory by extracting from directory name."""
+    # Extract project_id from directory name (format: YYYY-MM-DD-<slug>)
+    project_id = project_dir.name
+    # Extract title/slug from project_id
+    parts = project_id.rsplit("-", 3)
+    slug = parts[-1] if len(parts) >= 2 else project_id
+    # Create a minimal Project object (we don't need to query the store)
+    return Project(
+        id=project_id,
+        title=slug,
+        status=ProjectStatus.PLANNING,
+        root_path=str(project_dir),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+
+def _omc_budget_impl(docs_root: Path, slug: str) -> dict:
+    from omc.budget import Limits
+
+    pdir = _find_project_dir(docs_root, slug)
+    if pdir is None:
+        return {"error": f"project {slug!r} not found"}
+    store = ProjectStore(pdir / "council.sqlite3")
+    project = _project_from_dir(store, pdir)
+    if project is None:
+        return {"error": f"project {slug!r} not found"}
+    return {
+        "slug": project.title,
+        "project_id": project.id,
+        "spend_usd": round(store.project_cost_usd(project.id), 6),
+        "limit_usd": Limits().l4_project_usd,
+        "remaining_usd": round(
+            max(0.0, Limits().l4_project_usd - store.project_cost_usd(project.id)), 6
+        ),
+        "by_agent": {
+            k: round(v, 6) for k, v in store.cost_breakdown_by_agent(project.id).items()
+        },
+    }
+
+
 def _omc_verify_impl(*, docs_root: Path, project_id: str) -> dict:
     project_root = docs_root / "projects" / project_id
     if not project_root.exists():
@@ -129,6 +182,11 @@ def build_server(docs_root: Path | None = None) -> FastMCP:
         milestone verdict (ACCEPT / NEED_DETAIL / REJECT)."""
         return _omc_verify_impl(docs_root=root, project_id=project_id)
 
+    @app.tool()
+    def omc_budget(slug: str) -> dict:
+        """Return project USD spend vs L4 limit + per-agent breakdown."""
+        return _omc_budget_impl(root, slug)
+
     @app.prompt(name="omc_new")
     def _prompt_omc_new(slug: str) -> str:
         """Start a new oh-my-council project."""
@@ -164,6 +222,14 @@ def build_server(docs_root: Path | None = None) -> FastMCP:
     def _prompt_omc_tmux(project_id: str) -> str:
         """Launch the observer panel."""
         return f"In a shell, run: `omc tmux {project_id}`."
+
+    @app.prompt(name="omc_budget")
+    def _prompt_omc_budget(slug: str) -> str:
+        return (
+            f"Show me the current USD spend for project {slug!r}. "
+            f"Call the omc_budget tool with slug={slug!r} and report "
+            f"spend, limit, remaining, and per-agent breakdown."
+        )
 
     return app
 
