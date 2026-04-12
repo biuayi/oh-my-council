@@ -1,6 +1,6 @@
 """Unit tests for omc verify CLI subcommand."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from omc.cli import main
 from omc.verifier import VerdictOutput
