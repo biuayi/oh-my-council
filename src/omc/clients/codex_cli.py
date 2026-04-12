@@ -37,7 +37,7 @@ class CodexCLI:
             self.bin,
             "exec",
             "--sandbox", sandbox,
-            "--approval-policy", "never",
+            "--skip-git-repo-check",
             "--cd", str(cwd),
             prompt,
         ]

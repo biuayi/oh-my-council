@@ -19,7 +19,7 @@ def test_run_once_returns_stdout():
     assert cmd[0] == "codex"
     assert "exec" in cmd
     assert "--sandbox" in cmd and "read-only" in cmd
-    assert "--approval-policy" in cmd and "never" in cmd
+    assert "--skip-git-repo-check" in cmd
 
 
 def test_run_once_nonzero_raises():
