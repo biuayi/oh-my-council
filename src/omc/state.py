@@ -32,9 +32,11 @@ _TRANSITIONS: dict[tuple[TaskStatus, StateEvent], TaskStatus] = {
     (TaskStatus.REVIEW, StateEvent.REVIEW_PASS): TaskStatus.AUDIT,
     (TaskStatus.REVIEW, StateEvent.REVIEW_FAIL): TaskStatus.PENDING,
     (TaskStatus.REVIEW, StateEvent.ESCALATION_EXHAUSTED): TaskStatus.BLOCKED,
+    (TaskStatus.REVIEW, StateEvent.BUDGET_EXCEEDED): TaskStatus.OVER_BUDGET,
     (TaskStatus.AUDIT, StateEvent.AUDIT_PASS): TaskStatus.ACCEPTED,
     (TaskStatus.AUDIT, StateEvent.AUDIT_FAIL): TaskStatus.PENDING,
     (TaskStatus.AUDIT, StateEvent.ESCALATION_EXHAUSTED): TaskStatus.BLOCKED,
+    (TaskStatus.AUDIT, StateEvent.BUDGET_EXCEEDED): TaskStatus.OVER_BUDGET,
 }
 
 
