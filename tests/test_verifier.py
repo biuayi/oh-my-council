@@ -16,7 +16,8 @@ from omc.verifier import MilestoneVerifier, VerdictOutput
 
 def _seed(tmp_path: Path, task_status: TaskStatus = TaskStatus.ACCEPTED):
     project_root = tmp_path / "p"
-    md = MDLayout(project_root); md.scaffold()
+    md = MDLayout(project_root)
+    md.scaffold()
     md.write_requirement("# greet\n\nImplement greet(name).")
     store = ProjectStore(project_root / "council.sqlite3")
     now = datetime(2026, 4, 12)

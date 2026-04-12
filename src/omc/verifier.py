@@ -12,7 +12,6 @@ from omc.clients.claude_cli import ClaudeCLI
 from omc.store.md import MDLayout
 from omc.store.project import ProjectStore
 
-
 Decision = Literal["ACCEPT", "NEED_DETAIL", "REJECT"]
 
 
