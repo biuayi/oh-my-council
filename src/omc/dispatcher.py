@@ -11,7 +11,8 @@ from datetime import datetime
 from pathlib import Path
 
 from omc.budget import BudgetTracker
-from omc.clients.base import Auditor, CodexClient, WorkerRunner
+from omc.clients.base import Auditor, CodexClient, ReviewOutput, WorkerRunner
+from omc.gates.hallucination import check_symbols
 from omc.gates.path_whitelist import check_paths
 from omc.gates.syntax import check_syntax
 from omc.models import Interaction
@@ -121,8 +122,10 @@ class Dispatcher:
                             )
                             self._transition(task, StateEvent.WORKER_DONE)
                             # Jump directly to review (skip the normal gate block below)
-                            review = self.deps.codex.review(
-                                task_id, worker_out.files, spec.spec_md
+                            review = self._run_review_gate(
+                                self.deps.codex.review(
+                                    task_id, worker_out.files, spec.spec_md
+                                )
                             )
                             self.deps.budget.record_tokens(task_id, review.tokens_used)
                             self.deps.md.write_review(task_id, review.review_md)
@@ -201,8 +204,10 @@ class Dispatcher:
                                 tokens_used=worker_out.tokens_used,
                             )
                             self._transition(task, StateEvent.WORKER_DONE)
-                            review = self.deps.codex.review(
-                                task_id, worker_out.files, spec.spec_md
+                            review = self._run_review_gate(
+                                self.deps.codex.review(
+                                    task_id, worker_out.files, spec.spec_md
+                                )
                             )
                             self.deps.budget.record_tokens(task_id, review.tokens_used)
                             self.deps.md.write_review(task_id, review.review_md)
@@ -249,8 +254,10 @@ class Dispatcher:
 
             self._transition(task, StateEvent.WORKER_DONE)
 
-            # Codex review
-            review = self.deps.codex.review(task_id, worker_out.files, spec.spec_md)
+            # Codex review + hallucination gate
+            review = self._run_review_gate(
+                self.deps.codex.review(task_id, worker_out.files, spec.spec_md)
+            )
             self.deps.budget.record_tokens(task_id, review.tokens_used)
             self.deps.md.write_review(task_id, review.review_md)
             self._record(
@@ -287,6 +294,30 @@ class Dispatcher:
             return
 
     # ----- helpers -----
+
+    def _run_review_gate(self, review: ReviewOutput) -> ReviewOutput:
+        """Apply hallucination gate to Codex review output.
+
+        If Codex reported symbols and any fail existence checks, flip
+        `passed` to False and append the offenders list to review_md.
+        """
+        symbols = getattr(self.deps.codex, "_last_symbols", [])
+        if not symbols:
+            return review
+        result = check_symbols(symbols, self.deps.project_source_root)
+        if result.ok:
+            return review
+        appended = (
+            review.review_md
+            + "\n\n## hallucination offenders\n"
+            + "\n".join(f"- {o}" for o in result.offenders)
+        )
+        return ReviewOutput(
+            task_id=review.task_id,
+            passed=False,
+            review_md=appended,
+            tokens_used=review.tokens_used,
+        )
 
     def _write_files(self, files: dict[str, str]) -> list[Path]:
         written: list[Path] = []
