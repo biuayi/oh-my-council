@@ -1,5 +1,4 @@
 from datetime import datetime
-from pathlib import Path
 
 from omc.cli import main
 from omc.models import Interaction, Task, TaskStatus

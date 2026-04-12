@@ -4,6 +4,7 @@ for the Phase 3 full command set."""
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -151,6 +152,35 @@ def cmd_tail(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tmux(args: argparse.Namespace) -> int:
+    project_root = _docs_root() / "projects" / args.project_id
+    if not project_root.exists():
+        print(f"error: project {args.project_id} not found", file=sys.stderr)
+        return 2
+
+    session = f"omc-{args.project_id}"
+    db = project_root / "council.sqlite3"
+    cmds = [
+        ["tmux", "new-session", "-d", "-s", session, "-n", "council"],
+        ["tmux", "split-window", "-t", session, "-h",
+         f"omc tail {args.project_id}"],
+        ["tmux", "split-window", "-t", session, "-v",
+         f"watch -n 1 'sqlite3 {db} \"SELECT id,status FROM tasks\"'"],
+        ["tmux", "split-window", "-t", session, "-v",
+         f"omc tail {args.project_id} --limit 5"],
+        ["tmux", "split-window", "-t", session, "-v",
+         f"omc tail {args.project_id} --limit 5"],
+        ["tmux", "select-layout", "-t", session, "tiled"],
+    ]
+    for c in cmds:
+        r = subprocess.run(c, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"tmux failed: {' '.join(c)}\n{r.stderr}", file=sys.stderr)
+            return r.returncode
+    print(f"tmux session '{session}' created. attach with: tmux attach -t {session}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="omc")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -178,6 +208,10 @@ def main(argv: list[str] | None = None) -> int:
     p_tail.add_argument("project_id")
     p_tail.add_argument("--limit", type=int, default=20)
     p_tail.set_defaults(func=cmd_tail)
+
+    p_tmux = sub.add_parser("tmux", help="launch tmux observer panel for a project")
+    p_tmux.add_argument("project_id")
+    p_tmux.set_defaults(func=cmd_tmux)
 
     args = parser.parse_args(argv)
     return args.func(args)
