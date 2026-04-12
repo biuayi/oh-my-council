@@ -268,6 +268,21 @@ pytest/jest/go test 失败 = review reject, 计入 L1。
 - **集成**: Fake LLM provider (确定性输出 + 可注入失败) 跑完整单任务 pipeline
 - **E2E** (MVP 必须过): 用一个真实小需求跑通 —— 生成 1 个 Python 文件 + 1 个 pytest 文件, 全程 L1 内通过, 里程碑验收 accept
 
+## 10.5 Credentials
+
+Secrets MUST live outside the repo. Canonical location: `~/.config/oh-my-council/.env` (mode 0600).
+Expected keys (Phase 2+):
+
+- `OMC_WORKER_VENDOR` — `minimax` | `zhipu` | `google` | `openai` (LiteLLM provider prefix)
+- `OMC_WORKER_MODEL` — concrete model id, e.g. `MiniMax-M2.5`, `glm-4-plus`, `gemini-2.5-flash`
+- `OMC_WORKER_API_BASE` — vendor endpoint URL
+- `OMC_WORKER_API_KEY` — secret
+- (future) `OMC_AUDITOR_*`, `OMC_CODEX_*` blocks
+
+**Never** commit secrets. `.gitignore` covers `.worktrees/` but never extend it to cover `src/` or `docs/` for secret-holding files — secrets belong entirely outside the repo.
+
+MVP testing vendor (as of 2026-04-12): **MiniMax (`MiniMax-M2.5`)** via `api.minimaxi.com`. Other vendors (Zhipu GLM, Gemini) plug in by swapping env vars; WorkerRunner is vendor-agnostic via LiteLLM.
+
 ## 11. 风险与开放问题
 
 - **Codex CLI 非官方输出格式稳定性**: 需要包装层解析, 可能随 Codex 版本变化。缓解: 封装在 `CodexClient` 一个模块内, 版本变化只改这里。
