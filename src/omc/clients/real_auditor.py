@@ -11,6 +11,7 @@ import litellm
 
 from omc.clients.base import Auditor, AuditOutput
 from omc.config import Settings
+from omc.pricing import compute_cost, load_prices
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
@@ -38,8 +39,17 @@ class LiteLLMAuditor:
             ],
         )
         content = (resp.choices[0].message.content or "").strip()
-        tokens_val = getattr(resp.usage, "total_tokens", 0) or 0
-        tokens = int(tokens_val) if getattr(resp, "usage", None) else 0
+        usage = getattr(resp, "usage", None)
+        tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
+        tokens_out = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+        tokens_total = (
+            int(getattr(usage, "total_tokens", tokens_in + tokens_out) or 0)
+            if usage
+            else 0
+        )
+        cost = compute_cost(
+            self.settings.worker_model, tokens_in, tokens_out, load_prices()
+        )
 
         m = _FENCE_RE.search(content)
         if m:
@@ -52,10 +62,13 @@ class LiteLLMAuditor:
             return AuditOutput(
                 task_id=task_id, passed=False,
                 audit_md=f"# audit {task_id}\n\nunparseable auditor response; treating as fail.",
-                tokens_used=tokens,
+                tokens_used=tokens_total, tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
             )
         md = _render_md(task_id, passed, findings)
-        return AuditOutput(task_id=task_id, passed=passed, audit_md=md, tokens_used=tokens)
+        return AuditOutput(
+            task_id=task_id, passed=passed, audit_md=md,
+            tokens_used=tokens_total, tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
+        )
 
 
 def _render_md(task_id: str, passed: bool, findings: list[dict]) -> str:

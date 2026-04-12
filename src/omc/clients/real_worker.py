@@ -12,6 +12,7 @@ import litellm
 
 from omc.clients.base import WorkerOutput, WorkerRunner
 from omc.config import Settings
+from omc.pricing import compute_cost, load_prices
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
@@ -43,8 +44,24 @@ class LiteLLMWorker:
         content = resp.choices[0].message.content or ""
         files = _extract_files(content)
         usage = getattr(resp, "usage", None)
-        tokens = int(usage.total_tokens or 0) if usage else 0
-        return WorkerOutput(task_id=task_id, files=files, tokens_used=tokens)
+        tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
+        tokens_out = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+        tokens_total = (
+            int(getattr(usage, "total_tokens", tokens_in + tokens_out) or 0)
+            if usage
+            else 0
+        )
+        cost = compute_cost(
+            self.settings.worker_model, tokens_in, tokens_out, load_prices()
+        )
+        return WorkerOutput(
+            task_id=task_id,
+            files=files,
+            tokens_used=tokens_total,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost,
+        )
 
 
 def _extract_files(raw: str) -> dict[str, str]:

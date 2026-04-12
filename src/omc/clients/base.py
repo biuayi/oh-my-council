@@ -12,13 +12,19 @@ class SpecOutput:
     spec_md: str
     path_whitelist: list[str]
     tokens_used: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
 class WorkerOutput:
     task_id: str
-    files: dict[str, str]  # path -> content
+    files: dict[str, str]
     tokens_used: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -27,6 +33,9 @@ class ReviewOutput:
     passed: bool
     review_md: str
     tokens_used: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -35,6 +44,9 @@ class AuditOutput:
     passed: bool
     audit_md: str
     tokens_used: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
 
 
 class CodexClient(Protocol):

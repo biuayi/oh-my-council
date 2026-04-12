@@ -56,3 +56,37 @@ def test_schema_violation_raises():
     with patch("omc.clients.real_worker.litellm.completion",
                return_value=_mock_completion('{"wrongkey": 1}')), pytest.raises(WorkerParseError):
         w.write("T001", "# spec")
+
+
+def test_litellm_worker_populates_cost_usd(monkeypatch):
+    """Worker output must include tokens_in/out and computed cost_usd."""
+    from unittest.mock import MagicMock
+
+    import omc.clients.real_worker as rw
+    from omc.clients.real_worker import LiteLLMWorker
+    from omc.config import Settings
+    from omc.pricing import ModelPrice
+
+    fake_resp = MagicMock()
+    fake_resp.choices = [MagicMock()]
+    fake_resp.choices[0].message.content = '{"files": {"a.py": "pass\\n"}}'
+    fake_resp.usage.prompt_tokens = 1_000_000
+    fake_resp.usage.completion_tokens = 500_000
+    fake_resp.usage.total_tokens = 1_500_000
+
+    monkeypatch.setattr(rw.litellm, "completion", lambda **_: fake_resp)
+    monkeypatch.setattr(rw, "load_prices", lambda: {
+        "test-model": ModelPrice(in_usd_per_mtok=2.0, out_usd_per_mtok=4.0)
+    })
+
+    s = Settings(
+        worker_vendor="x", worker_model="test-model",
+        worker_api_base="http://x", worker_api_key="x",
+    )
+    out = LiteLLMWorker(s).write("T001", "dummy spec")
+
+    assert out.tokens_in == 1_000_000
+    assert out.tokens_out == 500_000
+    assert out.tokens_used == 1_500_000
+    # 1M*2 + 0.5M*4 = 2 + 2 = 4.0
+    assert out.cost_usd == 4.0
