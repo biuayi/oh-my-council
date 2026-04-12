@@ -10,3 +10,15 @@ build/
 
 # AI
 .codex
+
+# omc runtime artifacts — contains full LLM prompts/replies, may include secrets
+docs/index.sqlite3
+docs/projects/*/council.sqlite3
+docs/projects/*/workspace/
+docs/projects/*/tasks/
+docs/projects/*/milestones/
+docs/projects/*/reviews/
+docs/projects/*/audits/
+docs/projects/*/compression_checkpoints/
+docs/projects/*/requirement.md
+
