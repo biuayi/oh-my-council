@@ -52,6 +52,23 @@ class RealCodexClient:
             )
         return ReviewOutput(task_id=task_id, passed=passed, review_md=review_md, tokens_used=0)
 
+    def dispatch_escalation(
+        self,
+        task_id: str,
+        spec_md: str,
+        failing_files: dict[str, str],
+    ) -> dict[str, str]:
+        corpus = "\n\n".join(
+            f"### {p}\n```python\n{c}\n```" for p, c in failing_files.items()
+        )
+        prompt = _ESCALATION_PROMPT.format(spec_md=spec_md, corpus=corpus)
+        res = self.cli.run_once(prompt, cwd=self.workspace_root, sandbox="workspace-write")
+        obj = _parse_json(res.stdout)
+        files = obj.get("files")
+        if not isinstance(files, dict):
+            raise CodexParseError(f"escalation missing 'files': {obj!r}")
+        return {k: v for k, v in files.items() if isinstance(k, str) and isinstance(v, str)}
+
 
 _SPEC_PROMPT = """You are the technical lead. Produce a per-file implementation
 spec for task {task_id}. Requirement: {requirement!r}. Respond ONLY as JSON:
@@ -72,6 +89,16 @@ Respond ONLY as JSON:
 `symbols` must list EVERY imported name and EVERY external function call that
 should exist in the project or its declared dependencies. Downstream validation
 will grep the repo to confirm existence."""
+
+_ESCALATION_PROMPT = """Workers failed repeatedly on this task. You now have
+workspace-write access. Rewrite the file(s) from scratch to satisfy the spec.
+Spec:
+{spec_md}
+
+Previous failing attempt:
+{corpus}
+
+Respond ONLY as JSON: {{"files": {{"<relpath>": "<contents>"}}}}"""
 
 
 def _parse_json(raw: str) -> dict:
