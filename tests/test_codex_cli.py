@@ -28,7 +28,10 @@ def test_run_once_returns_stdout():
     assert "exec" in cmd
     assert "--sandbox" in cmd and "read-only" in cmd
     assert "--skip-git-repo-check" in cmd
+    assert "--ephemeral" in cmd
     assert "--output-last-message" in cmd
+    # low reasoning effort by default (speed over depth for spec/review)
+    assert any('model_reasoning_effort="low"' in str(x) for x in cmd)
 
 
 def test_run_once_nonzero_raises():

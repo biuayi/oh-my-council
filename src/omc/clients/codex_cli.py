@@ -25,7 +25,8 @@ class CodexResult:
 @dataclass(slots=True)
 class CodexCLI:
     bin: str = "codex"
-    timeout_s: float = 120.0
+    timeout_s: float = 300.0
+    reasoning_effort: str = "low"
 
     def run_once(
         self,
@@ -43,6 +44,8 @@ class CodexCLI:
             "exec",
             "--sandbox", sandbox,
             "--skip-git-repo-check",
+            "--ephemeral",
+            "-c", f'model_reasoning_effort="{self.reasoning_effort}"',
             "--cd", str(cwd),
             "--output-last-message", str(last_msg_path),
             prompt,

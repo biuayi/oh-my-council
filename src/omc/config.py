@@ -27,7 +27,21 @@ class Settings:
     worker_api_base: str
     worker_api_key: str
     codex_bin: str = "codex"
-    codex_timeout_s: float = 120.0
+    codex_timeout_s: float = 300.0
+    codex_reasoning_effort: str = "low"
+
+
+def _normalize_api_base(raw: str) -> str:
+    """LiteLLM with the `openai/` prefix appends `/v1/chat/completions` itself.
+    If the user's env has the full URL (as most vendor docs show), strip the
+    suffix so we don't 404 with a double-appended path.
+    """
+    s = raw.rstrip("/")
+    for suffix in ("/chat/completions", "/completions"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    return s
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -41,8 +55,11 @@ def load_settings(path: Path | None = None) -> Settings:
     return Settings(
         worker_vendor=values["OMC_WORKER_VENDOR"],
         worker_model=values["OMC_WORKER_MODEL"],
-        worker_api_base=values["OMC_WORKER_API_BASE"],
+        worker_api_base=_normalize_api_base(values["OMC_WORKER_API_BASE"]),
         worker_api_key=values["OMC_WORKER_API_KEY"],
         codex_bin=values.get("OMC_CODEX_BIN") or "codex",
-        codex_timeout_s=float(values.get("OMC_CODEX_TIMEOUT_S") or 120.0),
+        codex_timeout_s=float(values.get("OMC_CODEX_TIMEOUT_S") or 300.0),
+        codex_reasoning_effort=(
+            values.get("OMC_CODEX_REASONING_EFFORT") or "low"
+        ).lower(),
     )

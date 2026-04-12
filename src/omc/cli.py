@@ -106,6 +106,39 @@ def cmd_run_fake(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_task_add(args: argparse.Namespace) -> int:
+    project_id = args.project_id
+    task_id = args.task_id
+    docs = _docs_root(args)
+    project_root = docs / "projects" / project_id
+    if not project_root.exists():
+        print(f"error: project {project_id} not found", file=sys.stderr)
+        return 2
+    store = ProjectStore(project_root / "council.sqlite3")
+    if store.get_task(task_id) is not None and not args.force:
+        print(
+            f"error: task {task_id} already exists (use --force to overwrite)",
+            file=sys.stderr,
+        )
+        return 3
+    whitelist = [p.strip() for p in args.path_whitelist.split(",") if p.strip()] \
+        if args.path_whitelist else []
+    now = datetime.now()
+    store.upsert_task(
+        Task(
+            id=task_id,
+            project_id=project_id,
+            md_path=f"tasks/{task_id}.md",
+            status=TaskStatus.PENDING,
+            path_whitelist=whitelist,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    print(f"seeded task {task_id} in {project_id} (whitelist={whitelist})")
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     project_id = args.project_id
     task_id = args.task_id
@@ -124,7 +157,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     deps = DispatcherDeps(
         store=store, md=md,
         codex=RealCodexClient(
-            cli=CodexCLI(bin=settings.codex_bin, timeout_s=settings.codex_timeout_s),
+            cli=CodexCLI(
+                bin=settings.codex_bin,
+                timeout_s=settings.codex_timeout_s,
+                reasoning_effort=settings.codex_reasoning_effort,
+            ),
             workspace_root=workspace,
         ),
         worker=LiteLLMWorker(settings),
@@ -277,6 +314,21 @@ def main(argv: list[str] | None = None) -> int:
     p_real.add_argument("project_id")
     p_real.add_argument("task_id")
     p_real.set_defaults(func=cmd_run)
+
+    p_task = sub.add_parser("task", help="manage tasks in a project")
+    task_sub = p_task.add_subparsers(dest="task_cmd", required=True)
+    p_task_add = task_sub.add_parser("add", help="seed a new PENDING task row")
+    p_task_add.add_argument("project_id")
+    p_task_add.add_argument("task_id")
+    p_task_add.add_argument(
+        "--path-whitelist",
+        default="",
+        help="comma-separated relative file paths the worker may touch",
+    )
+    p_task_add.add_argument(
+        "--force", action="store_true", help="overwrite if task already exists"
+    )
+    p_task_add.set_defaults(func=cmd_task_add)
 
     p_mcp = sub.add_parser("mcp", help="run MCP stdio server for Claude Code")
     p_mcp.set_defaults(func=cmd_mcp)
