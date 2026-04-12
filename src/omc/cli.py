@@ -18,6 +18,7 @@ from omc.clients.real_codex import RealCodexClient
 from omc.clients.real_worker import LiteLLMWorker
 from omc.config import load_settings
 from omc.dispatcher import Dispatcher, DispatcherDeps
+from omc.mcp_server import run_stdio
 from omc.models import Project, ProjectStatus, Task, TaskStatus
 from omc.store.index import IndexStore
 from omc.store.md import MDLayout
@@ -132,6 +133,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace) -> int:
+    run_stdio(_docs_root())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="omc")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -151,6 +157,9 @@ def main(argv: list[str] | None = None) -> int:
     p_real.add_argument("project_id")
     p_real.add_argument("task_id")
     p_real.set_defaults(func=cmd_run)
+
+    p_mcp = sub.add_parser("mcp", help="run MCP stdio server for Claude Code")
+    p_mcp.set_defaults(func=cmd_mcp)
 
     args = parser.parse_args(argv)
     return args.func(args)
