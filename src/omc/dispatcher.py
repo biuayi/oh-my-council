@@ -138,6 +138,9 @@ class Dispatcher:
                                 task_id=worker_out.task_id,
                                 files=escalated_files,
                                 tokens_used=worker_out.tokens_used,
+                                tokens_in=worker_out.tokens_in,
+                                tokens_out=worker_out.tokens_out,
+                                cost_usd=worker_out.cost_usd,
                             )
                             self._transition(task, StateEvent.WORKER_DONE)
                             # Jump directly to review (skip the normal gate block below)
@@ -235,6 +238,9 @@ class Dispatcher:
                                 task_id=worker_out.task_id,
                                 files=escalated_files,
                                 tokens_used=worker_out.tokens_used,
+                                tokens_in=worker_out.tokens_in,
+                                tokens_out=worker_out.tokens_out,
+                                cost_usd=worker_out.cost_usd,
                             )
                             self._transition(task, StateEvent.WORKER_DONE)
                             review = self._run_review_gate(
@@ -374,6 +380,9 @@ class Dispatcher:
             passed=False,
             review_md=appended,
             tokens_used=review.tokens_used,
+            tokens_in=review.tokens_in,
+            tokens_out=review.tokens_out,
+            cost_usd=review.cost_usd,
         )
 
     def _write_files(self, files: dict[str, str]) -> list[Path]:
