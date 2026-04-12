@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from omc.budget import BudgetTracker, Limits
+from omc.clients.claude_cli import ClaudeCLI
 from omc.clients.codex_cli import CodexCLI
 from omc.clients.fake_auditor import FakeAuditor
 from omc.clients.fake_codex import FakeCodexClient
@@ -24,6 +25,7 @@ from omc.models import Project, ProjectStatus, Task, TaskStatus
 from omc.store.index import IndexStore
 from omc.store.md import MDLayout
 from omc.store.project import ProjectStore
+from omc.verifier import MilestoneVerifier
 
 
 def _docs_root() -> Path:
@@ -181,6 +183,21 @@ def cmd_tmux(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    project_root = _docs_root() / "projects" / args.project_id
+    if not project_root.exists():
+        print(f"error: project {args.project_id} not found", file=sys.stderr)
+        return 2
+    md = MDLayout(project_root)
+    store = ProjectStore(project_root / "council.sqlite3")
+    verifier = MilestoneVerifier(cli=ClaudeCLI())
+    verdict = verifier.verify(store=store, md=md, project_id=args.project_id)
+    print(f"[{verdict.decision}] {verdict.summary}")
+    for action in verdict.next_actions:
+        print(f"  - {action}")
+    return {"ACCEPT": 0, "NEED_DETAIL": 3, "REJECT": 4}.get(verdict.decision, 4)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="omc")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -212,6 +229,10 @@ def main(argv: list[str] | None = None) -> int:
     p_tmux = sub.add_parser("tmux", help="launch tmux observer panel for a project")
     p_tmux.add_argument("project_id")
     p_tmux.set_defaults(func=cmd_tmux)
+
+    p_verify = sub.add_parser("verify", help="run milestone verify via claude -p")
+    p_verify.add_argument("project_id")
+    p_verify.set_defaults(func=cmd_verify)
 
     args = parser.parse_args(argv)
     return args.func(args)

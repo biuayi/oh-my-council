@@ -82,6 +82,28 @@ def _omc_start_impl(*, docs_root: Path, project_id: str, task_id: str) -> dict:
     return {"task_id": task_id, "status": got.status.name if got else "MISSING"}
 
 
+def _omc_verify_impl(*, docs_root: Path, project_id: str) -> dict:
+    project_root = docs_root / "projects" / project_id
+    if not project_root.exists():
+        return {"error": f"project not found: {project_id}"}
+    md = MDLayout(project_root)
+    store = ProjectStore(project_root / "council.sqlite3")
+    tasks = [
+        {"id": t.id, "status": t.status.name, "attempts": t.attempts}
+        for t in store.list_tasks()
+    ]
+    return {
+        "project_id": project_id,
+        "requirement": md.read_requirement(),
+        "tasks": tasks,
+        "hint": (
+            "Decide ACCEPT / NEED_DETAIL / REJECT based on requirement vs "
+            "task statuses. Use the `omc verify` CLI if you want a "
+            "subprocess-Claude second opinion."
+        ),
+    }
+
+
 def build_server(docs_root: Path | None = None) -> FastMCP:
     root = docs_root or _default_docs_root()
     app = FastMCP("oh-my-council")
@@ -101,6 +123,12 @@ def build_server(docs_root: Path | None = None) -> FastMCP:
         """Run a task through the fake pipeline for smoke testing."""
         return _omc_start_impl(docs_root=root, project_id=project_id, task_id=task_id)
 
+    @app.tool()
+    def omc_verify(project_id: str) -> dict:
+        """Return project summary so the current Claude session can render a
+        milestone verdict (ACCEPT / NEED_DETAIL / REJECT)."""
+        return _omc_verify_impl(docs_root=root, project_id=project_id)
+
     @app.prompt(name="omc_new")
     def _prompt_omc_new(slug: str) -> str:
         """Start a new oh-my-council project."""
@@ -118,9 +146,14 @@ def build_server(docs_root: Path | None = None) -> FastMCP:
         return f"Call `omc_start` with project_id=`{project_id}` task_id=`{task_id}`."
 
     @app.prompt(name="omc_verify")
-    def _prompt_omc_verify() -> str:
-        """(Phase 3b) Milestone verify via `claude -p`."""
-        return "Not yet implemented — scheduled for Phase 3b."
+    def omc_verify_prompt(project_id: str) -> str:
+        """Milestone verify."""
+        return (
+            f"Call the `omc_verify` tool with project_id=`{project_id}`. "
+            f"Read the requirement + task list it returns, decide ACCEPT / "
+            f"NEED_DETAIL / REJECT, and explain briefly. For a subprocess "
+            f"second opinion, suggest running `omc verify {project_id}`."
+        )
 
     @app.prompt(name="omc_status")
     def _prompt_omc_status(project_id: str) -> str:
