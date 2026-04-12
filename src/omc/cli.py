@@ -9,9 +9,14 @@ from datetime import datetime
 from pathlib import Path
 
 from omc.budget import BudgetTracker, Limits
+from omc.clients.codex_cli import CodexCLI
 from omc.clients.fake_auditor import FakeAuditor
 from omc.clients.fake_codex import FakeCodexClient
 from omc.clients.fake_worker import FakeWorkerRunner
+from omc.clients.real_auditor import LiteLLMAuditor
+from omc.clients.real_codex import RealCodexClient
+from omc.clients.real_worker import LiteLLMWorker
+from omc.config import load_settings
 from omc.dispatcher import Dispatcher, DispatcherDeps
 from omc.models import Project, ProjectStatus, Task, TaskStatus
 from omc.store.index import IndexStore
@@ -95,6 +100,38 @@ def cmd_run_fake(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    project_id = args.project_id
+    task_id = args.task_id
+    docs = _docs_root()
+    project_root = docs / "projects" / project_id
+    if not project_root.exists():
+        print(f"error: project {project_id} not found", file=sys.stderr)
+        return 2
+
+    settings = load_settings()
+    md = MDLayout(project_root)
+    store = ProjectStore(project_root / "council.sqlite3")
+    workspace = project_root / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    deps = DispatcherDeps(
+        store=store, md=md,
+        codex=RealCodexClient(
+            cli=CodexCLI(bin=settings.codex_bin, timeout_s=settings.codex_timeout_s),
+            workspace_root=workspace,
+        ),
+        worker=LiteLLMWorker(settings),
+        auditor=LiteLLMAuditor(settings),
+        budget=BudgetTracker(Limits()),
+        project_source_root=workspace,
+    )
+    Dispatcher(deps).run_once(task_id, requirement=md.read_requirement())
+    got = store.get_task(task_id)
+    print(f"task {task_id} -> {got.status if got else 'MISSING'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="omc")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -109,6 +146,11 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("project_id")
     p_run.add_argument("task_id")
     p_run.set_defaults(func=cmd_run_fake)
+
+    p_real = sub.add_parser("run", help="run a task using real LLM backends")
+    p_real.add_argument("project_id")
+    p_real.add_argument("task_id")
+    p_real.set_defaults(func=cmd_run)
 
     args = parser.parse_args(argv)
     return args.func(args)

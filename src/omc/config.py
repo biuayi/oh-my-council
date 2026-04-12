@@ -1,0 +1,48 @@
+"""Runtime configuration. Reads ~/.config/oh-my-council/.env (or the path in
+OMC_ENV_FILE). Secrets never land in the repo — see spec §10.5.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import dotenv_values
+
+DEFAULT_ENV_PATH = Path.home() / ".config" / "oh-my-council" / ".env"
+
+_REQUIRED = (
+    "OMC_WORKER_VENDOR",
+    "OMC_WORKER_MODEL",
+    "OMC_WORKER_API_BASE",
+    "OMC_WORKER_API_KEY",
+)
+
+
+@dataclass(slots=True, frozen=True)
+class Settings:
+    worker_vendor: str
+    worker_model: str
+    worker_api_base: str
+    worker_api_key: str
+    codex_bin: str = "codex"
+    codex_timeout_s: float = 120.0
+
+
+def load_settings(path: Path | None = None) -> Settings:
+    if path is None:
+        override = os.environ.get("OMC_ENV_FILE")
+        path = Path(override) if override else DEFAULT_ENV_PATH
+    values = dict(dotenv_values(path))
+    missing = [k for k in _REQUIRED if k not in values or not values[k]]
+    if missing:
+        raise KeyError(f"missing required env keys: {', '.join(missing)}")
+    return Settings(
+        worker_vendor=values["OMC_WORKER_VENDOR"],
+        worker_model=values["OMC_WORKER_MODEL"],
+        worker_api_base=values["OMC_WORKER_API_BASE"],
+        worker_api_key=values["OMC_WORKER_API_KEY"],
+        codex_bin=values.get("OMC_CODEX_BIN") or "codex",
+        codex_timeout_s=float(values.get("OMC_CODEX_TIMEOUT_S") or 120.0),
+    )

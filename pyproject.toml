@@ -3,7 +3,10 @@ name = "oh-my-council"
 version = "0.1.0"
 description = "Multi-agent orchestrator: Claude as PM, Codex as tech lead, GLM5 as worker"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "litellm>=1.50,<2",
+    "python-dotenv>=1.0,<2",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -25,7 +28,10 @@ packages = ["src/omc"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-ra -q"
+markers = [
+  "slow: tests that require real API keys and network access",
+]
+addopts = "-ra -q -m 'not slow'"
 
 [tool.ruff]
 line-length = 100

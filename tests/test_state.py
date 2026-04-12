@@ -38,6 +38,20 @@ def test_running_blocked_on_escalation_exhausted():
     )
 
 
+def test_review_budget_exceeded_goes_to_over_budget():
+    assert (
+        next_state(TaskStatus.REVIEW, StateEvent.BUDGET_EXCEEDED)
+        == TaskStatus.OVER_BUDGET
+    )
+
+
+def test_audit_budget_exceeded_goes_to_over_budget():
+    assert (
+        next_state(TaskStatus.AUDIT, StateEvent.BUDGET_EXCEEDED)
+        == TaskStatus.OVER_BUDGET
+    )
+
+
 def test_invalid_transition_raises():
     with pytest.raises(InvalidTransition):
         next_state(TaskStatus.ACCEPTED, StateEvent.WORKER_START)
