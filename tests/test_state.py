@@ -1,7 +1,7 @@
 import pytest
 
 from omc.models import TaskStatus
-from omc.state import StateEvent, InvalidTransition, next_state
+from omc.state import InvalidTransition, StateEvent, next_state
 
 
 def test_pending_to_running_on_start():
