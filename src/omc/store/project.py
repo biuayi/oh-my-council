@@ -142,6 +142,31 @@ class ProjectStore:
                 ),
             )
 
+    def task_cost_usd(self, task_id: str) -> float:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) AS s FROM interactions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+        return float(row["s"] or 0.0)
+
+    def project_cost_usd(self, project_id: str) -> float:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) AS s FROM interactions WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        return float(row["s"] or 0.0)
+
+    def cost_breakdown_by_agent(self, project_id: str) -> dict[str, float]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT from_agent, COALESCE(SUM(cost_usd),0) AS s "
+                "FROM interactions WHERE project_id = ? GROUP BY from_agent",
+                (project_id,),
+            ).fetchall()
+        return {r["from_agent"]: float(r["s"] or 0.0) for r in rows}
+
 
 def _row_to_task(r: sqlite3.Row) -> Task:
     return Task(
