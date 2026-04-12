@@ -73,7 +73,13 @@ def _extract_files(raw: str) -> dict[str, str]:
         obj = json.loads(candidate)
     except json.JSONDecodeError as e:
         raise WorkerParseError(f"worker output not valid JSON: {e}") from e
-    files = obj.get("files")
+    files = obj.get("files") if isinstance(obj, dict) else None
+    # Tolerant fallback: workers routinely drop the {"files": ...} envelope and
+    # return the path->content map at the top level. Accept it if the shape matches.
+    if files is None and isinstance(obj, dict) and obj and all(
+        isinstance(k, str) and isinstance(v, str) for k, v in obj.items()
+    ):
+        files = obj
     if not isinstance(files, dict) or not all(
         isinstance(k, str) and isinstance(v, str) for k, v in files.items()
     ):

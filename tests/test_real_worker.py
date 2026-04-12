@@ -42,6 +42,17 @@ def test_parses_fenced_json_output():
     assert out.files == {"a.py": "y=2\n"}
 
 
+def test_accepts_bare_path_map_without_files_envelope():
+    """Workers often drop the `{"files": ...}` wrapper. If the root object is
+    itself a str->str map, treat it as the files map."""
+    w = LiteLLMWorker(_settings())
+    payload = '{"src/a.py": "x = 1\\n", "tests/test_a.py": "# test\\n"}'
+    with patch("omc.clients.real_worker.litellm.completion",
+               return_value=_mock_completion(payload)):
+        out = w.write("T001", "# spec")
+    assert out.files == {"src/a.py": "x = 1\n", "tests/test_a.py": "# test\n"}
+
+
 def test_invalid_json_raises_worker_error():
     from omc.clients.real_worker import WorkerParseError
     w = LiteLLMWorker(_settings())

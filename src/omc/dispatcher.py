@@ -6,9 +6,18 @@ real Codex-escalation on L1 exhaustion.
 
 from __future__ import annotations
 
+import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+
+def _stage(label: str, detail: str = "") -> None:
+    """Print a progress line to stderr so long-running pipelines show life."""
+    ts = time.strftime("%H:%M:%S")
+    suffix = f" — {detail}" if detail else ""
+    print(f"[{ts}] {label}{suffix}", file=sys.stderr, flush=True)
 
 from omc.budget import BudgetTracker
 from omc.clients.base import Auditor, CodexClient, ReviewOutput, WorkerRunner
@@ -43,7 +52,12 @@ class Dispatcher:
             raise ValueError(f"task {task_id} not found")
 
         # 1. Codex produces spec (always once per run_once for simplicity).
+        _stage(f"{task_id} codex.produce_spec", "calling codex exec")
         spec = self.deps.codex.produce_spec(task_id, requirement)
+        _stage(
+            f"{task_id} codex.produce_spec.done",
+            f"spec_md={len(spec.spec_md)}B whitelist={spec.path_whitelist}",
+        )
         self.deps.md.write_task(task_id, spec.spec_md)
         task.path_whitelist = spec.path_whitelist
         self.deps.budget.record_cost(spec.cost_usd)
@@ -83,7 +97,15 @@ class Dispatcher:
                 return
 
             # Worker
+            _stage(
+                f"{task_id} worker.write",
+                f"attempt={self.deps.budget.attempts(task_id)} tokens_so_far={self.deps.budget.tokens(task_id)}",
+            )
             worker_out = self.deps.worker.write(task_id, spec.spec_md)
+            _stage(
+                f"{task_id} worker.write.done",
+                f"files={list(worker_out.files)} tokens={worker_out.tokens_used} cost=${worker_out.cost_usd:.4f}",
+            )
             self.deps.budget.record_tokens(task_id, worker_out.tokens_used)
             self.deps.budget.record_cost(worker_out.cost_usd)
             self._record(
@@ -306,8 +328,13 @@ class Dispatcher:
             self._transition(task, StateEvent.WORKER_DONE)
 
             # Codex review + hallucination gate
+            _stage(f"{task_id} codex.review", "calling codex exec")
             review = self._run_review_gate(
                 self.deps.codex.review(task_id, worker_out.files, spec.spec_md)
+            )
+            _stage(
+                f"{task_id} codex.review.done",
+                f"passed={review.passed} review_md={len(review.review_md)}B",
             )
             self.deps.budget.record_tokens(task_id, review.tokens_used)
             self.deps.budget.record_cost(review.cost_usd)
@@ -332,7 +359,12 @@ class Dispatcher:
             self._transition(task, StateEvent.REVIEW_PASS)
 
             # Audit
+            _stage(f"{task_id} auditor.audit", "calling worker-model as auditor")
             audit = self.deps.auditor.audit(task_id, worker_out.files)
+            _stage(
+                f"{task_id} auditor.audit.done",
+                f"passed={audit.passed} tokens={audit.tokens_used} cost=${audit.cost_usd:.4f}",
+            )
             self.deps.budget.record_tokens(task_id, audit.tokens_used)
             self.deps.budget.record_cost(audit.cost_usd)
             self.deps.md.write_audit(task_id, audit.audit_md)

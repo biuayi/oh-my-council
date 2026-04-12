@@ -60,20 +60,33 @@ def _top_level_resolves(top: str) -> bool:
 
 
 def _attr_exists(dotted: str) -> bool:
-    """Check that module.attr exists where dotted = 'module.attr'.
+    """Check that the dotted path resolves, even when intermediate segments
+    are classes rather than submodules (e.g. ``pathlib.Path.is_dir``).
 
-    Splits on the last dot: everything before is the module to import,
-    the last component is the attribute to check.
+    Strategy: find the longest leftward prefix that imports as a module, then
+    walk the remaining segments via ``getattr``.
     """
     if "." not in dotted:
-        # bare name — nothing to check
         return True
-    module_part, attr = dotted.rsplit(".", 1)
-    try:
-        mod = importlib.import_module(module_part)
-        return hasattr(mod, attr)
-    except Exception:
+    parts = dotted.split(".")
+    mod_obj = None
+    mod_len = 0
+    for i in range(len(parts), 0, -1):
+        prefix = ".".join(parts[:i])
+        try:
+            mod_obj = importlib.import_module(prefix)
+            mod_len = i
+            break
+        except Exception:
+            continue
+    if mod_obj is None:
         return False
+    obj = mod_obj
+    for attr in parts[mod_len:]:
+        if not hasattr(obj, attr):
+            return False
+        obj = getattr(obj, attr)
+    return True
 
 
 def check_symbols(symbols: list[dict], project_root: Path) -> GateResult:
@@ -120,8 +133,32 @@ def check_symbols(symbols: list[dict], project_root: Path) -> GateResult:
 
         # --- For calls, additionally verify the attribute exists ---
         if kind == "call" and not _attr_exists(name):
+            # Worker-generated code often references modules that exist only
+            # in the workspace (not yet installed). Accept the symbol if its
+            # dotted path maps to a .py file in the source tree we just wrote.
+            if _symbol_in_source_tree(name, project_root):
+                continue
             offenders.append(
                 f"{file_}: attribute not found for call '{name}'"
             )
 
     return GateResult(ok=not offenders, offenders=offenders)
+
+
+def _symbol_in_source_tree(dotted: str, source_root: Path) -> bool:
+    """Return True if any prefix of *dotted* maps to a real .py file under
+    *source_root* (or a common ``src/`` / ``tests/`` subdir).
+
+    Example: ``omc.projects_index.list_projects`` → matches
+    ``<source_root>/src/omc/projects_index.py`` if the worker just wrote it.
+    """
+    parts = dotted.split(".")
+    roots = [source_root, source_root / "src", source_root / "tests"]
+    for i in range(len(parts), 0, -1):
+        rel_parts = parts[:i]
+        for root in roots:
+            candidate_file = root.joinpath(*rel_parts).with_suffix(".py")
+            candidate_pkg = root.joinpath(*rel_parts, "__init__.py")
+            if candidate_file.exists() or candidate_pkg.exists():
+                return True
+    return False

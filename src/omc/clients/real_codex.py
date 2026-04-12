@@ -103,13 +103,65 @@ Respond ONLY as JSON: {{"files": {{"<relpath>": "<contents>"}}}}"""
 
 def _parse_json(raw: str) -> dict:
     s = raw.strip()
-    m = _FENCE_RE.search(s)
-    if m:
-        s = m.group(1).strip()
+    # 1) raw-is-already-JSON happy path.
     try:
         return json.loads(s)
-    except json.JSONDecodeError as e:
-        raise CodexParseError(f"codex output not valid JSON: {e}") from e
+    except json.JSONDecodeError:
+        pass
+    # 2) fenced ```json ... ``` block.
+    m = _FENCE_RE.search(s)
+    if m:
+        inner = m.group(1).strip()
+        if inner:
+            try:
+                return json.loads(inner)
+            except json.JSONDecodeError:
+                pass
+    # 3) salvage the last balanced {...} chunk in the raw.
+    brace = _extract_last_json_object(s)
+    if brace:
+        try:
+            return json.loads(brace)
+        except json.JSONDecodeError:
+            pass
+    raise CodexParseError(
+        f"codex output not valid JSON (len={len(raw)}): {raw[:500]!r}"
+    )
+
+
+def _extract_last_json_object(text: str) -> str | None:
+    """Scan for the last syntactically balanced `{...}` block in text.
+
+    Handles nested braces inside string literals by tracking quote state.
+    """
+    best: tuple[int, int] | None = None
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\" and in_str:
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                best = (start, i + 1)
+    if best is None:
+        return None
+    return text[best[0]: best[1]]
 
 
 _: CodexClient = RealCodexClient(cli=CodexCLI(), workspace_root=Path("."))  # noqa: F841
