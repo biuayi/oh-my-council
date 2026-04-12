@@ -138,6 +138,19 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tail(args: argparse.Namespace) -> int:
+    project_root = _docs_root() / "projects" / args.project_id
+    if not project_root.exists():
+        print(f"error: project {args.project_id} not found", file=sys.stderr)
+        return 2
+    store = ProjectStore(project_root / "council.sqlite3")
+    rows = store.recent_interactions(limit=args.limit)
+    for r in reversed(rows):
+        print(f"[{r.task_id}] {r.from_agent} -> {r.to_agent} ({r.kind}): "
+              f"{r.content[:80]}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="omc")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -160,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_mcp = sub.add_parser("mcp", help="run MCP stdio server for Claude Code")
     p_mcp.set_defaults(func=cmd_mcp)
+
+    p_tail = sub.add_parser("tail", help="print recent agent interactions")
+    p_tail.add_argument("project_id")
+    p_tail.add_argument("--limit", type=int, default=20)
+    p_tail.set_defaults(func=cmd_tail)
 
     args = parser.parse_args(argv)
     return args.func(args)
