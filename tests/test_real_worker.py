@@ -69,6 +69,45 @@ def test_schema_violation_raises():
         w.write("T001", "# spec")
 
 
+def test_worker_falls_back_on_primary_failure():
+    """Primary provider raises → worker retries on fallback provider."""
+    s = Settings(
+        worker_vendor="glm5", worker_model="primary-model",
+        worker_api_base="http://primary", worker_api_key="k1",
+        fallback_vendor="minimax", fallback_model="fallback-model",
+        fallback_api_base="http://fallback", fallback_api_key="k2",
+    )
+    w = LiteLLMWorker(s)
+    fallback_resp = _mock_completion('{"files": {"a.py": "pass\\n"}}')
+    calls: list[str] = []
+
+    def fake_completion(**kw):
+        calls.append(kw["api_base"])
+        if kw["api_base"] == "http://primary":
+            raise RuntimeError("primary 500")
+        return fallback_resp
+
+    with patch("omc.clients.real_worker.litellm.completion", side_effect=fake_completion):
+        out = w.write("T001", "# spec")
+    assert out.files == {"a.py": "pass\n"}
+    assert calls == ["http://primary", "http://fallback"]
+
+
+def test_worker_raises_when_all_providers_fail():
+    s = Settings(
+        worker_vendor="glm5", worker_model="p",
+        worker_api_base="http://primary", worker_api_key="k1",
+        fallback_vendor="minimax", fallback_model="f",
+        fallback_api_base="http://fallback", fallback_api_key="k2",
+    )
+    w = LiteLLMWorker(s)
+    with patch(
+        "omc.clients.real_worker.litellm.completion",
+        side_effect=RuntimeError("boom"),
+    ), pytest.raises(RuntimeError, match="boom"):
+        w.write("T001", "# spec")
+
+
 def test_litellm_worker_populates_cost_usd(monkeypatch):
     """Worker output must include tokens_in/out and computed cost_usd."""
     from unittest.mock import MagicMock

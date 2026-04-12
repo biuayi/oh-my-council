@@ -12,13 +12,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-
-def _stage(label: str, detail: str = "") -> None:
-    """Print a progress line to stderr so long-running pipelines show life."""
-    ts = time.strftime("%H:%M:%S")
-    suffix = f" — {detail}" if detail else ""
-    print(f"[{ts}] {label}{suffix}", file=sys.stderr, flush=True)
-
 from omc.budget import BudgetTracker
 from omc.clients.base import Auditor, CodexClient, ReviewOutput, WorkerRunner
 from omc.gates.hallucination import check_symbols
@@ -28,6 +21,13 @@ from omc.models import Interaction
 from omc.state import StateEvent, next_state
 from omc.store.md import MDLayout
 from omc.store.project import ProjectStore
+
+
+def _stage(label: str, detail: str = "") -> None:
+    """Print a progress line to stderr so long-running pipelines show life."""
+    ts = time.strftime("%H:%M:%S")
+    suffix = f" — {detail}" if detail else ""
+    print(f"[{ts}] {label}{suffix}", file=sys.stderr, flush=True)
 
 
 @dataclass(slots=True)
@@ -97,14 +97,18 @@ class Dispatcher:
                 return
 
             # Worker
+            _attempt = self.deps.budget.attempts(task_id)
+            _tok = self.deps.budget.tokens(task_id)
             _stage(
                 f"{task_id} worker.write",
-                f"attempt={self.deps.budget.attempts(task_id)} tokens_so_far={self.deps.budget.tokens(task_id)}",
+                f"attempt={_attempt} tokens_so_far={_tok}",
             )
             worker_out = self.deps.worker.write(task_id, spec.spec_md)
             _stage(
                 f"{task_id} worker.write.done",
-                f"files={list(worker_out.files)} tokens={worker_out.tokens_used} cost=${worker_out.cost_usd:.4f}",
+                f"files={list(worker_out.files)} "
+                f"tokens={worker_out.tokens_used} "
+                f"cost=${worker_out.cost_usd:.4f}",
             )
             self.deps.budget.record_tokens(task_id, worker_out.tokens_used)
             self.deps.budget.record_cost(worker_out.cost_usd)

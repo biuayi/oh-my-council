@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass
 
 import litellm
@@ -32,36 +33,51 @@ class LiteLLMWorker:
     settings: Settings
 
     def write(self, task_id: str, spec_md: str) -> WorkerOutput:
-        resp = litellm.completion(
-            model=f"openai/{self.settings.worker_model}",
-            api_base=self.settings.worker_api_base,
-            api_key=self.settings.worker_api_key,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": spec_md},
-            ],
-        )
-        content = resp.choices[0].message.content or ""
-        files = _extract_files(content)
-        usage = getattr(resp, "usage", None)
-        tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
-        tokens_out = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
-        tokens_total = (
-            int(getattr(usage, "total_tokens", tokens_in + tokens_out) or 0)
-            if usage
-            else 0
-        )
-        cost = compute_cost(
-            self.settings.worker_model, tokens_in, tokens_out, load_prices()
-        )
-        return WorkerOutput(
-            task_id=task_id,
-            files=files,
-            tokens_used=tokens_total,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            cost_usd=cost,
-        )
+        providers = self.settings.providers
+        last_err: Exception | None = None
+        for i, prov in enumerate(providers):
+            try:
+                resp = litellm.completion(
+                    model=f"openai/{prov.model}",
+                    api_base=prov.api_base,
+                    api_key=prov.api_key,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user", "content": spec_md},
+                    ],
+                )
+                content = resp.choices[0].message.content or ""
+                files = _extract_files(content)
+            except Exception as e:
+                last_err = e
+                if i + 1 < len(providers):
+                    print(
+                        f"[worker] provider {prov.vendor}/{prov.model} failed "
+                        f"({type(e).__name__}: {e!s:.120}); falling back to "
+                        f"{providers[i+1].vendor}/{providers[i+1].model}",
+                        file=sys.stderr, flush=True,
+                    )
+                    continue
+                raise
+            usage = getattr(resp, "usage", None)
+            tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
+            tokens_out = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+            tokens_total = (
+                int(getattr(usage, "total_tokens", tokens_in + tokens_out) or 0)
+                if usage
+                else 0
+            )
+            cost = compute_cost(prov.model, tokens_in, tokens_out, load_prices())
+            return WorkerOutput(
+                task_id=task_id,
+                files=files,
+                tokens_used=tokens_total,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                cost_usd=cost,
+            )
+        assert last_err is not None
+        raise last_err
 
 
 def _extract_files(raw: str) -> dict[str, str]:

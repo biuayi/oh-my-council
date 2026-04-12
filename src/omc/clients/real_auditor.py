@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass
 
 import litellm
@@ -29,15 +30,35 @@ class LiteLLMAuditor:
 
     def audit(self, task_id: str, files: dict[str, str]) -> AuditOutput:
         corpus = "\n\n".join(f"### {p}\n```python\n{c}\n```" for p, c in files.items())
-        resp = litellm.completion(
-            model=f"openai/{self.settings.worker_model}",
-            api_base=self.settings.worker_api_base,
-            api_key=self.settings.worker_api_key,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": corpus},
-            ],
-        )
+        providers = self.settings.providers
+        last_err: Exception | None = None
+        resp = None
+        used = providers[0]
+        for i, prov in enumerate(providers):
+            try:
+                resp = litellm.completion(
+                    model=f"openai/{prov.model}",
+                    api_base=prov.api_base,
+                    api_key=prov.api_key,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user", "content": corpus},
+                    ],
+                )
+                used = prov
+                break
+            except Exception as e:
+                last_err = e
+                if i + 1 < len(providers):
+                    print(
+                        f"[auditor] provider {prov.vendor}/{prov.model} failed "
+                        f"({type(e).__name__}: {e!s:.120}); falling back to "
+                        f"{providers[i+1].vendor}/{providers[i+1].model}",
+                        file=sys.stderr, flush=True,
+                    )
+                    continue
+                raise
+        assert resp is not None, last_err
         content = (resp.choices[0].message.content or "").strip()
         usage = getattr(resp, "usage", None)
         tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
@@ -47,9 +68,7 @@ class LiteLLMAuditor:
             if usage
             else 0
         )
-        cost = compute_cost(
-            self.settings.worker_model, tokens_in, tokens_out, load_prices()
-        )
+        cost = compute_cost(used.model, tokens_in, tokens_out, load_prices())
 
         m = _FENCE_RE.search(content)
         if m:

@@ -21,6 +21,14 @@ _REQUIRED = (
 
 
 @dataclass(slots=True, frozen=True)
+class ProviderConfig:
+    vendor: str
+    model: str
+    api_base: str
+    api_key: str
+
+
+@dataclass(slots=True, frozen=True)
 class Settings:
     worker_vendor: str
     worker_model: str
@@ -29,6 +37,38 @@ class Settings:
     codex_bin: str = "codex"
     codex_timeout_s: float = 300.0
     codex_reasoning_effort: str = "low"
+    fallback_vendor: str | None = None
+    fallback_model: str | None = None
+    fallback_api_base: str | None = None
+    fallback_api_key: str | None = None
+
+    @property
+    def providers(self) -> tuple[ProviderConfig, ...]:
+        """Ordered provider chain: primary first, then optional fallback.
+        Workers/auditors iterate this on transient failure."""
+        chain = [
+            ProviderConfig(
+                vendor=self.worker_vendor,
+                model=self.worker_model,
+                api_base=self.worker_api_base,
+                api_key=self.worker_api_key,
+            )
+        ]
+        if (
+            self.fallback_vendor
+            and self.fallback_model
+            and self.fallback_api_base
+            and self.fallback_api_key
+        ):
+            chain.append(
+                ProviderConfig(
+                    vendor=self.fallback_vendor,
+                    model=self.fallback_model,
+                    api_base=_normalize_api_base(self.fallback_api_base),
+                    api_key=self.fallback_api_key,
+                )
+            )
+        return tuple(chain)
 
 
 def _normalize_api_base(raw: str) -> str:
@@ -62,4 +102,8 @@ def load_settings(path: Path | None = None) -> Settings:
         codex_reasoning_effort=(
             values.get("OMC_CODEX_REASONING_EFFORT") or "low"
         ).lower(),
+        fallback_vendor=values.get("OMC_WORKER_FALLBACK_VENDOR") or None,
+        fallback_model=values.get("OMC_WORKER_FALLBACK_MODEL") or None,
+        fallback_api_base=values.get("OMC_WORKER_FALLBACK_API_BASE") or None,
+        fallback_api_key=values.get("OMC_WORKER_FALLBACK_API_KEY") or None,
     )
