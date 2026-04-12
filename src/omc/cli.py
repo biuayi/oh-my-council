@@ -28,7 +28,9 @@ from omc.store.project import ProjectStore
 from omc.verifier import MilestoneVerifier
 
 
-def _docs_root() -> Path:
+def _docs_root(args: argparse.Namespace | None = None) -> Path:
+    if args and hasattr(args, "docs_root") and args.docs_root:
+        return Path(args.docs_root)
     return Path.cwd() / "docs"
 
 
@@ -183,6 +185,63 @@ def cmd_tmux(args: argparse.Namespace) -> int:
     return 0
 
 
+def _find_project_dir(docs_root: Path, slug: str) -> Path | None:
+    """Find project directory matching pattern YYYY-MM-DD-<slug>."""
+    projects_dir = docs_root / "projects"
+    if not projects_dir.exists():
+        return None
+    for d in projects_dir.iterdir():
+        if d.is_dir() and d.name.endswith(f"-{slug}"):
+            return d
+    return None
+
+
+def _project_from_dir(store: ProjectStore, project_dir: Path) -> Project | None:
+    """Get project info from a directory by extracting from directory name."""
+    # Extract project_id from directory name (format: YYYY-MM-DD-<slug>)
+    project_id = project_dir.name
+    # Extract title/slug from project_id
+    parts = project_id.rsplit("-", 3)
+    slug = parts[-1] if len(parts) >= 2 else project_id
+    # Create a minimal Project object (we don't need to query the store)
+    return Project(
+        id=project_id,
+        title=slug,
+        status=ProjectStatus.PLANNING,
+        root_path=str(project_dir),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+
+def cmd_budget(args: argparse.Namespace) -> int:
+    from omc.budget import Limits
+
+    docs_root = _docs_root(args)
+    project_dir = _find_project_dir(docs_root, args.slug)
+    if project_dir is None:
+        print(f"project {args.slug!r} not found under {docs_root}", file=sys.stderr)
+        return 2
+    store = ProjectStore(project_dir / "council.sqlite3")
+    project = _project_from_dir(store, project_dir)
+    if project is None:
+        print(f"project {args.slug!r} not found under {docs_root}", file=sys.stderr)
+        return 2
+    total = store.project_cost_usd(project.id)
+    breakdown = store.cost_breakdown_by_agent(project.id)
+    limit = Limits().l4_project_usd
+
+    print(f"project: {project.title}  (id={project.id})")
+    print(f"spend:   ${total:.4f}  /  limit ${limit:.2f}  (L4)")
+    if breakdown:
+        print("by agent:")
+        for agent, usd in sorted(breakdown.items(), key=lambda kv: -kv[1]):
+            print(f"  {agent:<14} ${usd:.4f}")
+    remaining = max(0.0, limit - total)
+    print(f"remaining: ${remaining:.4f}")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     project_root = _docs_root() / "projects" / args.project_id
     if not project_root.exists():
@@ -200,6 +259,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="omc")
+    parser.add_argument("--docs-root", default=None, help="path to docs root (default: cwd/docs)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_init = sub.add_parser("init", help="initialize a new project under docs/")
@@ -233,6 +293,10 @@ def main(argv: list[str] | None = None) -> int:
     p_verify = sub.add_parser("verify", help="run milestone verify via claude -p")
     p_verify.add_argument("project_id")
     p_verify.set_defaults(func=cmd_verify)
+
+    p_budget = sub.add_parser("budget", help="show project USD spend vs L4 limit")
+    p_budget.add_argument("slug", help="project slug")
+    p_budget.set_defaults(func=cmd_budget)
 
     args = parser.parse_args(argv)
     return args.func(args)

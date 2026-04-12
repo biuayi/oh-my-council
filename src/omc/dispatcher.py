@@ -46,6 +46,7 @@ class Dispatcher:
         spec = self.deps.codex.produce_spec(task_id, requirement)
         self.deps.md.write_task(task_id, spec.spec_md)
         task.path_whitelist = spec.path_whitelist
+        self.deps.budget.record_cost(spec.cost_usd)
         self._record(
             task_id,
             task.project_id,
@@ -54,11 +55,21 @@ class Dispatcher:
             "response",
             spec.spec_md,
             tokens_out=spec.tokens_used,
+            cost_usd=spec.cost_usd,
         )
+        # L4 guard after codex spec
+        if self.deps.budget.l4_exhausted():
+            self._transition(task, StateEvent.BUDGET_EXCEEDED)
+            return
 
         # 2. Loop: worker write -> gates -> review -> audit.
         while True:
             self.deps.budget.record_attempt(task_id)
+
+            # L4 guard at top of loop
+            if self.deps.budget.l4_exhausted():
+                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                return
 
             # Transition to RUNNING first so ESCALATION_EXHAUSTED is a valid
             # transition (PENDING -> ESCALATION_EXHAUSTED does not exist in the
@@ -74,6 +85,7 @@ class Dispatcher:
             # Worker
             worker_out = self.deps.worker.write(task_id, spec.spec_md)
             self.deps.budget.record_tokens(task_id, worker_out.tokens_used)
+            self.deps.budget.record_cost(worker_out.cost_usd)
             self._record(
                 task_id,
                 task.project_id,
@@ -82,7 +94,12 @@ class Dispatcher:
                 "request",
                 spec.spec_md,
                 tokens_in=worker_out.tokens_used,
+                cost_usd=worker_out.cost_usd,
             )
+            # L4 guard after worker cost
+            if self.deps.budget.l4_exhausted():
+                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                return
 
             # L3 token budget check — must happen immediately after recording tokens
             if self.deps.budget.l3_exhausted(task_id):
@@ -103,6 +120,8 @@ class Dispatcher:
                         task_id, spec.spec_md, worker_out.files
                     )
                     self.deps.budget.record_codex_attempt(task_id)
+                    # dispatch_escalation returns bare dict, not output object with cost_usd
+                    self.deps.budget.record_cost(0.0)
 
                     # Re-check gates with escalated files
                     esc_path_result = check_paths(
@@ -119,6 +138,9 @@ class Dispatcher:
                                 task_id=worker_out.task_id,
                                 files=escalated_files,
                                 tokens_used=worker_out.tokens_used,
+                                tokens_in=worker_out.tokens_in,
+                                tokens_out=worker_out.tokens_out,
+                                cost_usd=worker_out.cost_usd,
                             )
                             self._transition(task, StateEvent.WORKER_DONE)
                             # Jump directly to review (skip the normal gate block below)
@@ -128,6 +150,7 @@ class Dispatcher:
                                 )
                             )
                             self.deps.budget.record_tokens(task_id, review.tokens_used)
+                            self.deps.budget.record_cost(review.cost_usd)
                             self.deps.md.write_review(task_id, review.review_md)
                             self._record(
                                 task_id,
@@ -137,7 +160,12 @@ class Dispatcher:
                                 "review",
                                 review.review_md,
                                 tokens_out=review.tokens_used,
+                                cost_usd=review.cost_usd,
                             )
+                            # L4 guard after review cost
+                            if self.deps.budget.l4_exhausted():
+                                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                                return
                             if not review.passed:
                                 self._transition(task, StateEvent.REVIEW_FAIL)
                                 continue
@@ -146,6 +174,7 @@ class Dispatcher:
                             # Audit
                             audit = self.deps.auditor.audit(task_id, worker_out.files)
                             self.deps.budget.record_tokens(task_id, audit.tokens_used)
+                            self.deps.budget.record_cost(audit.cost_usd)
                             self.deps.md.write_audit(task_id, audit.audit_md)
                             self._record(
                                 task_id,
@@ -155,7 +184,12 @@ class Dispatcher:
                                 "audit",
                                 audit.audit_md,
                                 tokens_out=audit.tokens_used,
+                                cost_usd=audit.cost_usd,
                             )
+                            # L4 guard after audit cost
+                            if self.deps.budget.l4_exhausted():
+                                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                                return
                             if not audit.passed:
                                 self._transition(task, StateEvent.AUDIT_FAIL)
                                 continue
@@ -189,6 +223,8 @@ class Dispatcher:
                     )
                     self.deps.budget.record_codex_attempt(task_id)
                     task.codex_escalated = self.deps.budget.codex_attempts(task_id)
+                    # dispatch_escalation returns bare dict, not output object with cost_usd
+                    self.deps.budget.record_cost(0.0)
 
                     esc_path_result = check_paths(
                         produced=list(escalated_files.keys()),
@@ -202,6 +238,9 @@ class Dispatcher:
                                 task_id=worker_out.task_id,
                                 files=escalated_files,
                                 tokens_used=worker_out.tokens_used,
+                                tokens_in=worker_out.tokens_in,
+                                tokens_out=worker_out.tokens_out,
+                                cost_usd=worker_out.cost_usd,
                             )
                             self._transition(task, StateEvent.WORKER_DONE)
                             review = self._run_review_gate(
@@ -210,6 +249,7 @@ class Dispatcher:
                                 )
                             )
                             self.deps.budget.record_tokens(task_id, review.tokens_used)
+                            self.deps.budget.record_cost(review.cost_usd)
                             self.deps.md.write_review(task_id, review.review_md)
                             self._record(
                                 task_id,
@@ -219,7 +259,12 @@ class Dispatcher:
                                 "review",
                                 review.review_md,
                                 tokens_out=review.tokens_used,
+                                cost_usd=review.cost_usd,
                             )
+                            # L4 guard after review cost
+                            if self.deps.budget.l4_exhausted():
+                                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                                return
                             if not review.passed:
                                 self._transition(task, StateEvent.REVIEW_FAIL)
                                 continue
@@ -227,6 +272,7 @@ class Dispatcher:
 
                             audit = self.deps.auditor.audit(task_id, worker_out.files)
                             self.deps.budget.record_tokens(task_id, audit.tokens_used)
+                            self.deps.budget.record_cost(audit.cost_usd)
                             self.deps.md.write_audit(task_id, audit.audit_md)
                             self._record(
                                 task_id,
@@ -236,7 +282,12 @@ class Dispatcher:
                                 "audit",
                                 audit.audit_md,
                                 tokens_out=audit.tokens_used,
+                                cost_usd=audit.cost_usd,
                             )
+                            # L4 guard after audit cost
+                            if self.deps.budget.l4_exhausted():
+                                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                                return
                             if not audit.passed:
                                 self._transition(task, StateEvent.AUDIT_FAIL)
                                 continue
@@ -259,6 +310,7 @@ class Dispatcher:
                 self.deps.codex.review(task_id, worker_out.files, spec.spec_md)
             )
             self.deps.budget.record_tokens(task_id, review.tokens_used)
+            self.deps.budget.record_cost(review.cost_usd)
             self.deps.md.write_review(task_id, review.review_md)
             self._record(
                 task_id,
@@ -268,7 +320,12 @@ class Dispatcher:
                 "review",
                 review.review_md,
                 tokens_out=review.tokens_used,
+                cost_usd=review.cost_usd,
             )
+            # L4 guard after review cost
+            if self.deps.budget.l4_exhausted():
+                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                return
             if not review.passed:
                 self._transition(task, StateEvent.REVIEW_FAIL)
                 continue
@@ -277,6 +334,7 @@ class Dispatcher:
             # Audit
             audit = self.deps.auditor.audit(task_id, worker_out.files)
             self.deps.budget.record_tokens(task_id, audit.tokens_used)
+            self.deps.budget.record_cost(audit.cost_usd)
             self.deps.md.write_audit(task_id, audit.audit_md)
             self._record(
                 task_id,
@@ -286,7 +344,12 @@ class Dispatcher:
                 "audit",
                 audit.audit_md,
                 tokens_out=audit.tokens_used,
+                cost_usd=audit.cost_usd,
             )
+            # L4 guard after audit cost
+            if self.deps.budget.l4_exhausted():
+                self._transition(task, StateEvent.BUDGET_EXCEEDED)
+                return
             if not audit.passed:
                 self._transition(task, StateEvent.AUDIT_FAIL)
                 continue
@@ -317,6 +380,9 @@ class Dispatcher:
             passed=False,
             review_md=appended,
             tokens_used=review.tokens_used,
+            tokens_in=review.tokens_in,
+            tokens_out=review.tokens_out,
+            cost_usd=review.cost_usd,
         )
 
     def _write_files(self, files: dict[str, str]) -> list[Path]:
@@ -334,6 +400,7 @@ class Dispatcher:
         task.attempts = self.deps.budget.attempts(task.id)
         task.tokens_used = self.deps.budget.tokens(task.id)
         task.codex_escalated = self.deps.budget.codex_attempts(task.id)
+        task.cost_usd = self.deps.store.task_cost_usd(task.id)
         task.updated_at = datetime.now()
         self.deps.store.upsert_task(task)
 
@@ -347,6 +414,7 @@ class Dispatcher:
         content: str,
         tokens_in: int | None = None,
         tokens_out: int | None = None,
+        cost_usd: float = 0.0,
     ) -> None:
         self.deps.store.append_interaction(
             Interaction(
@@ -358,5 +426,6 @@ class Dispatcher:
                 content=content,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
+                cost_usd=cost_usd,
             )
         )
