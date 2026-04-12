@@ -8,18 +8,27 @@ from omc.clients.codex_cli import CodexCLI, CodexCLIError
 
 def test_run_once_returns_stdout():
     cli = CodexCLI(bin="codex", timeout_s=5.0)
-    fake = MagicMock(returncode=0, stdout="hello\n", stderr="")
-    with patch("omc.clients.codex_cli.subprocess.run", return_value=fake) as mr:
+    fake = MagicMock(returncode=0, stdout="session banner...\n", stderr="")
+
+    def _side_effect(cmd, **_kwargs):
+        # Simulate codex writing the "last message" to the path we gave it
+        i = cmd.index("--output-last-message")
+        Path(cmd[i + 1]).write_text("hello\n", encoding="utf-8")
+        return fake
+
+    with patch(
+        "omc.clients.codex_cli.subprocess.run", side_effect=_side_effect
+    ) as mr:
         out = cli.run_once("say hello", cwd=Path("/tmp"), sandbox="read-only")
     assert out.stdout == "hello\n"
     assert out.returncode == 0
-    # Assert the command shape
-    args, kwargs = mr.call_args
+    args, _kwargs = mr.call_args
     cmd = args[0]
     assert cmd[0] == "codex"
     assert "exec" in cmd
     assert "--sandbox" in cmd and "read-only" in cmd
     assert "--skip-git-repo-check" in cmd
+    assert "--output-last-message" in cmd
 
 
 def test_run_once_nonzero_raises():
