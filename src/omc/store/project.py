@@ -112,6 +112,14 @@ class ProjectStore:
                 ).fetchall()
         return [_row_to_interaction(r) for r in rows]
 
+    def recent_interactions(self, limit: int = 20) -> list[Interaction]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM interactions ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_row_to_interaction(r) for r in rows]
+
     def append_checkpoint(self, cp: CompressionCheckpoint) -> None:
         now_iso = (cp.created_at or datetime.now()).isoformat()
         with self._conn() as c:
