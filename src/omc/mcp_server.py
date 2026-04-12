@@ -101,6 +101,37 @@ def build_server(docs_root: Path | None = None) -> FastMCP:
         """Run a task through the fake pipeline for smoke testing."""
         return _omc_start_impl(docs_root=root, project_id=project_id, task_id=task_id)
 
+    @app.prompt(name="omc_new")
+    def _prompt_omc_new(slug: str) -> str:
+        """Start a new oh-my-council project."""
+        return (f"Call the `omc_new` tool with slug=`{slug}`. "
+                f"Then open `docs/projects/<id>/requirement.md` for the user to edit.")
+
+    @app.prompt(name="omc_plan")
+    def _prompt_omc_plan() -> str:
+        """(Phase 3b) Trigger Codex to produce task specs from requirement.md."""
+        return "Not yet implemented — scheduled for Phase 3b (CCB bridge)."
+
+    @app.prompt(name="omc_start")
+    def _prompt_omc_start(project_id: str, task_id: str) -> str:
+        """Run a task through the fake pipeline."""
+        return f"Call `omc_start` with project_id=`{project_id}` task_id=`{task_id}`."
+
+    @app.prompt(name="omc_verify")
+    def _prompt_omc_verify() -> str:
+        """(Phase 3b) Milestone verify via `claude -p`."""
+        return "Not yet implemented — scheduled for Phase 3b."
+
+    @app.prompt(name="omc_status")
+    def _prompt_omc_status(project_id: str) -> str:
+        """Summarize task statuses for a project."""
+        return f"Call `omc_status` with project_id=`{project_id}` and summarize the output."
+
+    @app.prompt(name="omc_tmux")
+    def _prompt_omc_tmux(project_id: str) -> str:
+        """Launch the observer panel."""
+        return f"In a shell, run: `omc tmux {project_id}`."
+
     return app
 
 

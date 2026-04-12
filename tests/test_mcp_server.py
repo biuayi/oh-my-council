@@ -70,3 +70,21 @@ def test_start_missing_project(tmp_path: Path):
     from omc.mcp_server import _omc_start_impl
     result = _omc_start_impl(docs_root=tmp_path / "docs", project_id="nope", task_id="T1")
     assert "error" in result
+
+
+def test_server_registers_six_prompts():
+    import asyncio
+
+    from omc.mcp_server import build_server
+
+    app = build_server()
+    prompts = asyncio.run(app.list_prompts())
+    names = {p.name for p in prompts}
+    # FastMCP may keep underscores in prompt names; accept either form
+    expected_dashed = {"omc-new", "omc-plan", "omc-start",
+                       "omc-verify", "omc-status", "omc-tmux"}
+    expected_underscored = {"omc_new", "omc_plan", "omc_start",
+                            "omc_verify", "omc_status", "omc_tmux"}
+    assert expected_dashed <= names or expected_underscored <= names, (
+        f"missing prompts; got {names}"
+    )
