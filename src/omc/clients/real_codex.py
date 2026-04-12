@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from omc.clients.base import ReviewOutput, SpecOutput
+from omc.clients.base import CodexClient, ReviewOutput, SpecOutput
 from omc.clients.codex_cli import CodexCLI
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -23,6 +23,7 @@ class CodexParseError(ValueError):
 class RealCodexClient:
     cli: CodexCLI
     workspace_root: Path
+    _last_symbols: list = field(default_factory=list)
 
     def produce_spec(self, task_id: str, requirement: str) -> SpecOutput:
         prompt = _SPEC_PROMPT.format(task_id=task_id, requirement=requirement)
@@ -36,7 +37,20 @@ class RealCodexClient:
         return SpecOutput(task_id=task_id, spec_md=spec_md, path_whitelist=wl, tokens_used=0)
 
     def review(self, task_id: str, files: dict[str, str], spec_md: str) -> ReviewOutput:
-        raise NotImplementedError  # Task 6
+        corpus = "\n\n".join(f"### {p}\n```python\n{c}\n```" for p, c in files.items())
+        prompt = _REVIEW_PROMPT.format(spec_md=spec_md, corpus=corpus)
+        res = self.cli.run_once(prompt, cwd=self.workspace_root, sandbox="read-only")
+        obj = _parse_json(res.stdout)
+        passed = bool(obj.get("passed", False))
+        review_md = obj.get("review_md") or ""
+        symbols = obj.get("symbols") or []
+        self._last_symbols = symbols  # available to gates.hallucination
+        if symbols:
+            review_md += "\n\n## symbols\n" + "\n".join(
+                f"- {s.get('kind','?')} `{s.get('name','?')}` in {s.get('file','?')}"
+                for s in symbols
+            )
+        return ReviewOutput(task_id=task_id, passed=passed, review_md=review_md, tokens_used=0)
 
 
 _SPEC_PROMPT = """You are the technical lead. Produce a per-file implementation
@@ -44,6 +58,20 @@ spec for task {task_id}. Requirement: {requirement!r}. Respond ONLY as JSON:
 {{"spec_md": "<markdown spec for the worker>",
   "path_whitelist": ["<relative file path>", ...]}}
 path_whitelist must list every file the worker is allowed to create or modify."""
+
+_REVIEW_PROMPT = """Review this task implementation. Spec:
+{spec_md}
+
+Files:
+{corpus}
+
+Respond ONLY as JSON:
+{{"passed": bool,
+  "review_md": "<markdown review notes>",
+  "symbols": [{{"name": "<dotted name>", "kind": "import|call", "file": "<path>"}}, ...]}}
+`symbols` must list EVERY imported name and EVERY external function call that
+should exist in the project or its declared dependencies. Downstream validation
+will grep the repo to confirm existence."""
 
 
 def _parse_json(raw: str) -> dict:
@@ -55,3 +83,6 @@ def _parse_json(raw: str) -> dict:
         return json.loads(s)
     except json.JSONDecodeError as e:
         raise CodexParseError(f"codex output not valid JSON: {e}") from e
+
+
+_: CodexClient = RealCodexClient(cli=CodexCLI(), workspace_root=Path("."))  # noqa: F841
