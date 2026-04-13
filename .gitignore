@@ -22,3 +22,7 @@ docs/projects/*/audits/
 docs/projects/*/compression_checkpoints/
 docs/projects/*/requirement.md
 
+
+# coverage artifacts
+.coverage
+htmlcov/
