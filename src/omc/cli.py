@@ -464,6 +464,58 @@ def cmd_archive(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_archive_stale(args: argparse.Namespace) -> int:
+    """Cold-storage sweep: tar+gz every project not touched in N days.
+
+    "Not touched" means the project dir mtime OR the latest interaction
+    row is older than `--days`. With `--remove`, the source directory is
+    deleted after a successful archive (the tarball is the only copy).
+    """
+    from datetime import timedelta
+
+    docs = _docs_root(args)
+    projects_dir = docs / "projects"
+    if not projects_dir.exists():
+        print(f"(no projects dir under {docs})")
+        return 0
+    cutoff = datetime.now() - timedelta(days=args.days)
+    out_dir = Path(args.output_dir) if args.output_dir else (docs / "_archive")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    archived: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    for pdir in sorted(projects_dir.iterdir()):
+        if not pdir.is_dir():
+            continue
+        pid = pdir.name
+        last_active = datetime.fromtimestamp(pdir.stat().st_mtime)
+        db = pdir / "council.sqlite3"
+        if db.exists():
+            ps = ProjectStore(db)
+            rows = ps.recent_interactions(limit=1)
+            if rows and rows[0].created_at:
+                last_active = max(last_active, rows[0].created_at)
+        if last_active >= cutoff:
+            skipped.append((pid, f"active {last_active.isoformat(timespec='seconds')}"))
+            continue
+        out_path = out_dir / f"{pid}.tar.gz"
+        with tarfile.open(out_path, "w:gz") as tf:
+            tf.add(pdir, arcname=pid)
+        archived.append(pid)
+        if args.remove:
+            import shutil
+            shutil.rmtree(pdir)
+
+    print(f"# archive-stale (>{args.days}d) → {out_dir}")
+    for pid in archived:
+        tag = " [removed]" if args.remove else ""
+        print(f"  archived: {pid}{tag}")
+    for pid, why in skipped:
+        print(f"  skipped:  {pid}  ({why})")
+    print(f"\n{len(archived)} archived, {len(skipped)} skipped")
+    return 0
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     """Restore a project from a tar.gz produced by `omc archive`."""
     src = Path(args.tarball)
@@ -685,6 +737,24 @@ def main(argv: list[str] | None = None) -> int:
         help="output tarball path (default: ./<project_id>.tar.gz)",
     )
     p_archive.set_defaults(func=cmd_archive)
+
+    p_archive_stale = sub.add_parser(
+        "archive-stale",
+        help="bulk-archive projects with no activity in the last N days",
+    )
+    p_archive_stale.add_argument(
+        "--days", type=int, default=30,
+        help="activity age threshold (default 30)",
+    )
+    p_archive_stale.add_argument(
+        "--output-dir", default=None,
+        help="where tarballs land (default: docs/_archive/)",
+    )
+    p_archive_stale.add_argument(
+        "--remove", action="store_true",
+        help="delete source project dir after successful archive",
+    )
+    p_archive_stale.set_defaults(func=cmd_archive_stale)
 
     p_import = sub.add_parser(
         "import", help="restore a project from a tarball produced by `omc archive`"

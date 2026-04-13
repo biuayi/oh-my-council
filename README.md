@@ -136,6 +136,24 @@ Runtime artifacts (sqlite, workspace, tasks/milestones md) are
 gitignored. Anything inside `docs/projects/*/` that could contain LLM
 prompt/response bodies is excluded by default.
 
+### Local-model providers (Ollama / vllm)
+
+The provider chain is transport-agnostic — any OpenAI-compatible HTTP
+endpoint works. Point `OMC_WORKER_API_BASE` at a local Ollama or vllm
+instance:
+
+```dotenv
+# local Ollama on default port
+OMC_WORKER_VENDOR=ollama
+OMC_WORKER_MODEL=qwen2.5-coder:14b
+OMC_WORKER_API_BASE=http://localhost:11434/v1
+OMC_WORKER_API_KEY=ollama  # Ollama ignores the key but LiteLLM requires a value
+```
+
+Pair a cheap cloud model with a local fallback (or vice versa) by also
+setting `OMC_WORKER_FALLBACK_*`. Local models are a good choice for the
+auditor stage when data sensitivity matters more than throughput.
+
 ### Unattended mode notifications
 
 Set `OMC_NOTIFY_WEBHOOK_URL` in your env file (or the shell) to any

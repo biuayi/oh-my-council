@@ -18,7 +18,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 - [x] 失败任务回放: `omc replay <project> <task>` 按时间序打印 interactions 链，`--max-chars` 可截断单条 body ✅
 - [ ] diff 审阅 UI (TUI 或 Web): 里程碑验收时 Claude 要 `need_detail` 的场景, 人也能旁听
-- [ ] interactions 压缩归档 (超过 N 天的项目迁移到冷存储)
+- [x] interactions 压缩归档: `omc archive-stale --days N [--output-dir DIR] [--remove]` — 批量 tar.gz 老项目到 `docs/_archive/` ✅
 
 ## 预算与观测
 
@@ -30,7 +30,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 - [ ] Worker 模型性能 A/B 自动比分: 同一 spec 交给 GLM5 / Gemini / MiniMAX, Codex review 谁通过率高谁优先级高
 - [x] Provider failover: 某家 API 429/5xx 自动切到备选 ✅ (`OMC_WORKER_FALLBACK_*` 环境变量，worker/auditor 在 primary 抛异常时走 fallback)
-- [ ] 本地模型接入 (Ollama / vllm) 用于安全审计等低敏任务
+- [x] 本地模型接入: 无需改代码，`OMC_WORKER_API_BASE=http://localhost:11434/v1` 即可走 Ollama/vllm；README "Local-model providers" 章节给出配置示例 ✅
 
 ## 审计与安全
 
@@ -53,7 +53,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 ## 工程
 
 - [ ] 单元测试覆盖率 ≥ 80% (MVP 只要求关键模块)
-- [ ] CI: lint + test + 一个 E2E 回归 (Fake LLM)
+- [x] CI: lint + test + E2E 回归 ✅ (`.github/workflows/ci.yml` 跑 ruff + pytest，`tests/test_e2e_fake.py` 已进默认集，无 `slow` 标记)
 - [x] 发布流程: `git tag vX.Y.Z && git push` 触发 `.github/workflows/release.yml` — 构建 wheel+sdist、PyPI trusted publishing、GitHub Release ✅ (brew tap 延后)
 
 ## 自举试跑发现的 gap (2026-04-13)
