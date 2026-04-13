@@ -158,6 +158,25 @@ class ProjectStore:
             ).fetchone()
         return float(row["s"] or 0.0)
 
+    def cost_breakdown_by_task(self, project_id: str) -> dict[str, float]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT task_id, COALESCE(SUM(cost_usd),0) AS s "
+                "FROM interactions WHERE project_id = ? "
+                "GROUP BY task_id ORDER BY s DESC",
+                (project_id,),
+            ).fetchall()
+        return {r["task_id"]: float(r["s"] or 0.0) for r in rows}
+
+    def cost_since(self, project_id: str, since_iso: str) -> float:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) AS s FROM interactions "
+                "WHERE project_id = ? AND created_at >= ?",
+                (project_id, since_iso),
+            ).fetchone()
+        return float(row["s"] or 0.0)
+
     def cost_breakdown_by_agent(self, project_id: str) -> dict[str, float]:
         with self._conn() as c:
             rows = c.execute(

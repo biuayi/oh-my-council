@@ -254,6 +254,54 @@ def cmd_tail(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    """Budget rollup: total spend per period, optionally broken down by task."""
+    from datetime import timedelta
+
+    from omc.store.index import IndexStore
+
+    docs = _docs_root()
+    idx = IndexStore(docs / "index.sqlite3")
+    projects = idx.list_projects()
+    period = args.period
+    now = datetime.now()
+    if period == "day":
+        since = now - timedelta(days=1)
+    elif period == "week":
+        since = now - timedelta(days=7)
+    else:
+        since = datetime(1970, 1, 1)
+    since_iso = since.isoformat()
+
+    total = 0.0
+    rows: list[tuple[str, float, dict[str, float] | None]] = []
+    for p in projects:
+        db = docs / "projects" / p.id / "council.sqlite3"
+        if not db.exists():
+            continue
+        ps = ProjectStore(db)
+        cost = ps.cost_since(p.id, since_iso) if period != "all" else ps.project_cost_usd(p.id)
+        if cost <= 0 and period != "all":
+            continue
+        by_task = ps.cost_breakdown_by_task(p.id) if args.by_task else None
+        rows.append((p.id, cost, by_task))
+        total += cost
+
+    label = {"day": "last 24h", "week": "last 7d", "all": "all time"}[period]
+    print(f"# omc cost report ({label})")
+    if not rows:
+        print("(no spend recorded)")
+        return 0
+    for pid, cost, by_task in rows:
+        print(f"\n## {pid}  ${cost:.6f}")
+        if by_task:
+            for tid, c in by_task.items():
+                if c > 0:
+                    print(f"    {tid:<16} ${c:.6f}")
+    print(f"\nTOTAL  ${total:.6f}")
+    return 0
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
     """Scan a project's workspace for leaked secrets (regex + entropy)."""
     from omc.gates.secrets import scan_paths
@@ -574,6 +622,15 @@ def main(argv: list[str] | None = None) -> int:
     p_tail.add_argument("project_id")
     p_tail.add_argument("--limit", type=int, default=20)
     p_tail.set_defaults(func=cmd_tail)
+
+    p_report = sub.add_parser(
+        "report", help="daily/weekly cost rollup; use --by-task for per-task attribution",
+    )
+    p_report.add_argument(
+        "--period", choices=("day", "week", "all"), default="day",
+    )
+    p_report.add_argument("--by-task", action="store_true")
+    p_report.set_defaults(func=cmd_report)
 
     p_scan = sub.add_parser(
         "scan", help="scan workspace for leaked secrets (regex + entropy)"

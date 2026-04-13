@@ -23,8 +23,8 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 ## 预算与观测
 
 - [x] 预算预警 (非硬停): 到达 80% 时发提醒, 不中断 ✅ (`BudgetTracker.record_cost` 在跨越阈值时向 stderr 发一次 WARNING)
-- [ ] 每日/每周预算汇总报表 (跨项目)
-- [ ] 模型调用成本分摊: 按 project / milestone / task 出账
+- [x] 每日/每周预算汇总报表 (跨项目): `omc report --period day|week|all` ✅
+- [x] 模型调用成本分摊 (按 project / task): `omc report --by-task` ✅ (按 milestone 延后，尚无里程碑级 interaction tag)
 
 ## 模型与 provider
 
