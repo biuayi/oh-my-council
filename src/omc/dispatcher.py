@@ -359,6 +359,37 @@ class Dispatcher:
                 return
             if not review.passed:
                 self._transition(task, StateEvent.REVIEW_FAIL)
+                # Without escalation support, L1 exhaustion terminates.
+                if not hasattr(self.deps.codex, "dispatch_escalation"):
+                    if self.deps.budget.l1_exhausted(task_id):
+                        self._transition(task, StateEvent.ESCALATION_EXHAUSTED)
+                        return
+                    continue
+                # With escalation: ask Codex to rewrite once L1 is exhausted.
+                if self.deps.budget.l1_exhausted(task_id):
+                    if self.deps.budget.l2_exhausted(task_id):
+                        self._transition(task, StateEvent.ESCALATION_EXHAUSTED)
+                        return
+                    _stage(f"{task_id} codex.escalation", "L1 exhausted on review")
+                    escalated_files = self.deps.codex.dispatch_escalation(
+                        task_id, spec.spec_md, worker_out.files
+                    )
+                    self.deps.budget.record_codex_attempt(task_id)
+                    self.deps.budget.record_cost(0.0)
+                    if not check_paths(
+                        produced=list(escalated_files.keys()),
+                        whitelist=task.path_whitelist,
+                    ).ok:
+                        continue
+                    self._write_files(escalated_files)
+                    worker_out = type(worker_out)(
+                        task_id=worker_out.task_id,
+                        files=escalated_files,
+                        tokens_used=worker_out.tokens_used,
+                        tokens_in=worker_out.tokens_in,
+                        tokens_out=worker_out.tokens_out,
+                        cost_usd=worker_out.cost_usd,
+                    )
                 continue
             self._transition(task, StateEvent.REVIEW_PASS)
 

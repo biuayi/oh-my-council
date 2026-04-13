@@ -125,6 +125,10 @@ def check_symbols(symbols: list[dict], project_root: Path) -> GateResult:
             top in stdlib
             or top in declared
             or _top_level_resolves(top)
+            # Worker-produced modules live in the workspace source tree, not
+            # in an installed package. Accept a symbol whose dotted path maps
+            # to a real .py file the worker just wrote.
+            or _symbol_in_source_tree(name, project_root)
         )
 
         if not top_known:
@@ -133,9 +137,6 @@ def check_symbols(symbols: list[dict], project_root: Path) -> GateResult:
 
         # --- For calls, additionally verify the attribute exists ---
         if kind == "call" and not _attr_exists(name):
-            # Worker-generated code often references modules that exist only
-            # in the workspace (not yet installed). Accept the symbol if its
-            # dotted path maps to a .py file in the source tree we just wrote.
             if _symbol_in_source_tree(name, project_root):
                 continue
             offenders.append(
