@@ -52,7 +52,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 ## 工程
 
-- [ ] 单元测试覆盖率 ≥ 80% (MVP 只要求关键模块)
+- [x] 单元测试覆盖率 ≥ 80% ✅ (当前 80%；CI 用 `--cov-fail-under=80` 卡住，回归即挂)
 - [x] CI: lint + test + E2E 回归 ✅ (`.github/workflows/ci.yml` 跑 ruff + pytest，`tests/test_e2e_fake.py` 已进默认集，无 `slow` 标记)
 - [x] 发布流程: `git tag vX.Y.Z && git push` 触发 `.github/workflows/release.yml` — 构建 wheel+sdist、PyPI trusted publishing、GitHub Release ✅ (brew tap 延后)
 

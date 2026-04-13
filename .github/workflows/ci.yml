@@ -30,8 +30,8 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
-      - name: Test
-        run: uv run pytest --tb=short
+      - name: Test (with coverage gate)
+        run: uv run pytest --tb=short --cov=src/omc --cov-fail-under=80
 
   build:
     needs: test
