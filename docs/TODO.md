@@ -36,7 +36,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 - [ ] 安全审计规则热更新 (YAML 规则库, 不重启 orchestrator)
 - [ ] 沙箱分级: 普通 worker 只读, Codex 下场有限可写, 只有 accepted 任务才能进入主工作树
-- [ ] 敏感信息扫描 (commit 前 regex + entropy 检查)
+- [x] 敏感信息扫描: `omc scan [project_id|--path]` — regex (AWS/OpenAI/Anthropic/JWT/SSH private key/GitHub PAT) + 高熵赋值检查；跳过 node_modules/.venv/dist 等 ✅
 
 ## 用户体验
 
@@ -54,7 +54,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 - [ ] 单元测试覆盖率 ≥ 80% (MVP 只要求关键模块)
 - [ ] CI: lint + test + 一个 E2E 回归 (Fake LLM)
-- [ ] 发布流程: 打 tag, 构建 pypi / brew tap
+- [x] 发布流程: `git tag vX.Y.Z && git push` 触发 `.github/workflows/release.yml` — 构建 wheel+sdist、PyPI trusted publishing、GitHub Release ✅ (brew tap 延后)
 
 ## 自举试跑发现的 gap (2026-04-13)
 

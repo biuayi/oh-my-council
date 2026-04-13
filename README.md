@@ -136,6 +136,21 @@ Runtime artifacts (sqlite, workspace, tasks/milestones md) are
 gitignored. Anything inside `docs/projects/*/` that could contain LLM
 prompt/response bodies is excluded by default.
 
+## Releasing
+
+Tag a commit with `vX.Y.Z` and push. The `release.yml` workflow will:
+
+1. Build wheel + sdist with `uv build`.
+2. Publish to PyPI via trusted publishing (configure the `pypi`
+   environment in repo settings → Environments, then register the
+   repo as a trusted publisher on PyPI).
+3. Create a GitHub Release with auto-generated notes and the dist
+   artifacts attached.
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

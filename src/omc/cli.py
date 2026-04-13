@@ -254,6 +254,28 @@ def cmd_tail(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Scan a project's workspace for leaked secrets (regex + entropy)."""
+    from omc.gates.secrets import scan_paths
+
+    if args.project_id:
+        root = _docs_root() / "projects" / args.project_id / "workspace"
+        if not root.exists():
+            print(f"error: workspace not found for {args.project_id}", file=sys.stderr)
+            return 2
+    else:
+        root = Path(args.path).resolve() if args.path else Path.cwd()
+
+    findings = scan_paths(root)
+    if not findings:
+        print(f"scan clean: no secrets found under {root}")
+        return 0
+    for f in findings:
+        print(f"{f.path}:{f.line}  [{f.rule}]  {f.snippet}")
+    print(f"\n{len(findings)} finding(s) under {root}", file=sys.stderr)
+    return 1
+
+
 def cmd_replay(args: argparse.Namespace) -> int:
     """Print the full chronological interaction chain for a single task."""
     project_root = _docs_root() / "projects" / args.project_id
@@ -552,6 +574,20 @@ def main(argv: list[str] | None = None) -> int:
     p_tail.add_argument("project_id")
     p_tail.add_argument("--limit", type=int, default=20)
     p_tail.set_defaults(func=cmd_tail)
+
+    p_scan = sub.add_parser(
+        "scan", help="scan workspace for leaked secrets (regex + entropy)"
+    )
+    p_scan_group = p_scan.add_mutually_exclusive_group()
+    p_scan_group.add_argument(
+        "project_id", nargs="?", default=None,
+        help="project id — scans docs/projects/<id>/workspace",
+    )
+    p_scan_group.add_argument(
+        "--path", default=None,
+        help="scan an arbitrary directory instead of a project workspace",
+    )
+    p_scan.set_defaults(func=cmd_scan)
 
     p_replay = sub.add_parser(
         "replay", help="print full interaction chain for a single task (debugging)"
