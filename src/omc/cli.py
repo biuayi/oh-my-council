@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import tarfile
 from datetime import datetime
 from pathlib import Path
 
@@ -339,6 +340,70 @@ def cmd_budget(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_archive(args: argparse.Namespace) -> int:
+    """Pack a project directory into a replayable tar.gz."""
+    project_id = args.project_id
+    docs = _docs_root(args)
+    project_root = docs / "projects" / project_id
+    if not project_root.exists():
+        print(f"error: project {project_id} not found", file=sys.stderr)
+        return 2
+    out_path = Path(args.output) if args.output else (
+        Path.cwd() / f"{project_id}.tar.gz"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(out_path, "w:gz") as tf:
+        # Pack the project root verbatim; arcname uses project_id as the top
+        # directory so `tar xzf` yields `./<project_id>/...`.
+        tf.add(project_root, arcname=project_id)
+    size = out_path.stat().st_size
+    print(f"archived {project_id} -> {out_path} ({size:,} bytes)")
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Restore a project from a tar.gz produced by `omc archive`."""
+    src = Path(args.tarball)
+    if not src.exists():
+        print(f"error: {src} not found", file=sys.stderr)
+        return 2
+    docs = _docs_root(args)
+    projects_dir = docs / "projects"
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(src, "r:gz") as tf:
+        names = tf.getnames()
+        top_levels = {n.split("/", 1)[0] for n in names if n}
+        if len(top_levels) != 1:
+            print(
+                f"error: archive must have a single top-level directory, "
+                f"got {sorted(top_levels)!r}",
+                file=sys.stderr,
+            )
+            return 3
+        project_id = next(iter(top_levels))
+        target = projects_dir / project_id
+        if target.exists() and not args.force:
+            print(
+                f"error: {target} already exists (use --force to overwrite)",
+                file=sys.stderr,
+            )
+            return 4
+        # Safety: reject absolute paths and .. traversal
+        for m in tf.getmembers():
+            if m.name.startswith("/") or ".." in Path(m.name).parts:
+                print(
+                    f"error: archive contains unsafe path {m.name!r}",
+                    file=sys.stderr,
+                )
+                return 5
+        if target.exists():
+            import shutil
+            shutil.rmtree(target)
+        tf.extractall(projects_dir)
+    print(f"imported {project_id} -> {target}")
+    return 0
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     """Cross-project rollup: task counts by status + USD spend."""
     docs = _docs_root(args)
@@ -473,6 +538,26 @@ def main(argv: list[str] | None = None) -> int:
         "stats", help="cross-project rollup: tasks by status + USD spend"
     )
     p_stats.set_defaults(func=cmd_stats)
+
+    p_archive = sub.add_parser(
+        "archive", help="pack a project directory into a replayable tar.gz"
+    )
+    p_archive.add_argument("project_id")
+    p_archive.add_argument(
+        "--output", "-o", default=None,
+        help="output tarball path (default: ./<project_id>.tar.gz)",
+    )
+    p_archive.set_defaults(func=cmd_archive)
+
+    p_import = sub.add_parser(
+        "import", help="restore a project from a tarball produced by `omc archive`"
+    )
+    p_import.add_argument("tarball")
+    p_import.add_argument(
+        "--force", action="store_true",
+        help="overwrite if the project directory already exists",
+    )
+    p_import.set_defaults(func=cmd_import)
 
     args = parser.parse_args(argv)
     return args.func(args)

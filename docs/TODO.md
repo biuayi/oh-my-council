@@ -47,8 +47,8 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 ## 跨项目与分享
 
 - [x] 全局 `index.sqlite3` 增加统计查询命令 (`omc stats`) ✅ 展示每项目 task 状态计数 + 项目 USD 支出 + 全局汇总
-- [ ] 项目归档: 把 `docs/projects/<id>/` 打包成 tarball, 包含完整可重放历史
-- [ ] 项目导入/导出: 从别人归档的 tarball 恢复 (用于分享调试样例)
+- [x] 项目归档: `omc archive <project_id> [-o out.tar.gz]` — 打包完整 `docs/projects/<id>/` ✅
+- [x] 项目导入/导出: `omc import <tarball> [--force]` — 从 tarball 恢复，拒绝绝对路径/`..` 穿越 ✅
 
 ## 工程
 
