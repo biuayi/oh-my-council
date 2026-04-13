@@ -16,7 +16,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 ## 失败恢复与审计
 
-- [ ] 失败任务回放: 读 interactions 重演一个任务的完整调用链, 便于 debug
+- [x] 失败任务回放: `omc replay <project> <task>` 按时间序打印 interactions 链，`--max-chars` 可截断单条 body ✅
 - [ ] diff 审阅 UI (TUI 或 Web): 里程碑验收时 Claude 要 `need_detail` 的场景, 人也能旁听
 - [ ] interactions 压缩归档 (超过 N 天的项目迁移到冷存储)
 

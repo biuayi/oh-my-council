@@ -254,6 +254,37 @@ def cmd_tail(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_replay(args: argparse.Namespace) -> int:
+    """Print the full chronological interaction chain for a single task."""
+    project_root = _docs_root() / "projects" / args.project_id
+    if not project_root.exists():
+        print(f"error: project {args.project_id} not found", file=sys.stderr)
+        return 2
+    store = ProjectStore(project_root / "council.sqlite3")
+    if store.get_task(args.task_id) is None:
+        print(f"error: task {args.task_id} not found", file=sys.stderr)
+        return 2
+    rows = store.list_interactions(task_id=args.task_id)
+    if not rows:
+        print(f"(no interactions recorded for {args.task_id})")
+        return 0
+    max_chars = args.max_chars
+    for r in rows:
+        ts = r.created_at.isoformat() if r.created_at else "?"
+        header = (
+            f"--- #{r.id} {ts} {r.from_agent} -> {r.to_agent} "
+            f"[{r.kind}] in={r.tokens_in} out={r.tokens_out} "
+            f"${(r.cost_usd or 0.0):.6f} ---"
+        )
+        print(header)
+        body = r.content or ""
+        if max_chars and len(body) > max_chars:
+            body = body[:max_chars] + f"\n... (truncated, {len(r.content)} chars total)"
+        print(body)
+        print()
+    return 0
+
+
 def cmd_tmux(args: argparse.Namespace) -> int:
     project_root = _docs_root() / "projects" / args.project_id
     if not project_root.exists():
@@ -521,6 +552,17 @@ def main(argv: list[str] | None = None) -> int:
     p_tail.add_argument("project_id")
     p_tail.add_argument("--limit", type=int, default=20)
     p_tail.set_defaults(func=cmd_tail)
+
+    p_replay = sub.add_parser(
+        "replay", help="print full interaction chain for a single task (debugging)"
+    )
+    p_replay.add_argument("project_id")
+    p_replay.add_argument("task_id")
+    p_replay.add_argument(
+        "--max-chars", type=int, default=2000,
+        help="truncate each interaction body at N chars (0 = no limit)",
+    )
+    p_replay.set_defaults(func=cmd_replay)
 
     p_tmux = sub.add_parser("tmux", help="launch tmux observer panel for a project")
     p_tmux.add_argument("project_id")
