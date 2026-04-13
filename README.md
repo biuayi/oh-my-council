@@ -64,11 +64,13 @@ omc init my-feature
 # 2. Write the requirement
 $EDITOR docs/projects/<id>/requirement.md
 
-# 3. Seed the first task (whitelist the files the worker may touch)
+# 3a. Let Codex decompose the requirement into tasks automatically
+omc plan <project-id>
+#   …or manually seed one task (whitelist the files the worker may touch)
 omc task add <project-id> T001 \
     --path-whitelist "src/pkg/foo.py,tests/test_foo.py"
 
-# 4. Run the full pipeline
+# 4. Run the full pipeline for a task
 #      produce_spec (Codex) → write (worker) → review (Codex) → audit (worker)
 omc run <project-id> T001
 

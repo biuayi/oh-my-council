@@ -25,6 +25,36 @@ class RealCodexClient:
     workspace_root: Path
     _last_symbols: list = field(default_factory=list)
 
+    def produce_plan(self, requirement: str) -> list[dict]:
+        """Decompose a project requirement into a task list.
+
+        Returns a list of dicts with keys:
+          - task_id: "T001", "T002", ... (caller-assigned if missing)
+          - brief:    one-line summary
+          - path_whitelist: [relative file paths]
+        """
+        prompt = _PLAN_PROMPT.format(requirement=requirement)
+        res = self.cli.run_once(prompt, cwd=self.workspace_root, sandbox="read-only")
+        obj = _parse_json(res.stdout)
+        raw = obj.get("tasks")
+        if not isinstance(raw, list) or not raw:
+            raise CodexParseError(f"plan missing 'tasks' list: {obj!r}")
+        tasks: list[dict] = []
+        for i, t in enumerate(raw, start=1):
+            if not isinstance(t, dict):
+                raise CodexParseError(f"plan task[{i-1}] not a dict: {t!r}")
+            wl = t.get("path_whitelist") or []
+            if not isinstance(wl, list) or not all(isinstance(p, str) for p in wl):
+                raise CodexParseError(f"plan task[{i-1}] bad path_whitelist: {wl!r}")
+            tasks.append(
+                {
+                    "task_id": t.get("task_id") or f"T{i:03d}",
+                    "brief": (t.get("brief") or "").strip(),
+                    "path_whitelist": wl,
+                }
+            )
+        return tasks
+
     def produce_spec(self, task_id: str, requirement: str) -> SpecOutput:
         prompt = _SPEC_PROMPT.format(task_id=task_id, requirement=requirement)
         res = self.cli.run_once(prompt, cwd=self.workspace_root, sandbox="read-only")
@@ -68,6 +98,23 @@ class RealCodexClient:
         if not isinstance(files, dict):
             raise CodexParseError(f"escalation missing 'files': {obj!r}")
         return {k: v for k, v in files.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+_PLAN_PROMPT = """You are the technical lead decomposing a requirement into
+a concrete, minimal task list for cheap worker models to execute. Aim for
+2-6 tasks; each task must produce a small set of files that a worker can
+write in a single LLM call. Respond ONLY as JSON:
+{{"tasks": [
+  {{"task_id": "T001",
+    "brief": "<one line>",
+    "path_whitelist": ["<relative path>", ...]}},
+  ...
+]}}
+Every path must be relative (no leading slash, no ..) and must be a file
+the worker should create or modify. Do NOT include directories.
+
+Requirement:
+{requirement}"""
 
 
 _SPEC_PROMPT = """You are the technical lead. Produce a per-file implementation

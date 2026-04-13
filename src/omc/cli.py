@@ -139,6 +139,66 @@ def cmd_task_add(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plan(args: argparse.Namespace) -> int:
+    """Decompose requirement.md into tasks via Codex and seed them."""
+    project_id = args.project_id
+    docs = _docs_root(args)
+    project_root = docs / "projects" / project_id
+    if not project_root.exists():
+        print(f"error: project {project_id} not found", file=sys.stderr)
+        return 2
+
+    settings = load_settings()
+    md = MDLayout(project_root)
+    requirement = md.read_requirement()
+    if not requirement.strip():
+        print(
+            f"error: {project_root}/requirement.md is empty; write it first",
+            file=sys.stderr,
+        )
+        return 3
+
+    codex = RealCodexClient(
+        cli=CodexCLI(
+            bin=settings.codex_bin,
+            timeout_s=settings.codex_timeout_s,
+            reasoning_effort=settings.codex_reasoning_effort,
+        ),
+        workspace_root=project_root / "workspace",
+    )
+    tasks = codex.produce_plan(requirement)
+
+    store = ProjectStore(project_root / "council.sqlite3")
+    now = datetime.now()
+    seeded: list[str] = []
+    skipped: list[str] = []
+    for t in tasks:
+        tid = t["task_id"]
+        if store.get_task(tid) is not None and not args.force:
+            skipped.append(tid)
+            continue
+        store.upsert_task(
+            Task(
+                id=tid,
+                project_id=project_id,
+                md_path=f"tasks/{tid}.md",
+                status=TaskStatus.PENDING,
+                path_whitelist=t["path_whitelist"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        seeded.append(tid)
+        print(f"  {tid}: {t['brief']}")
+        for p in t["path_whitelist"]:
+            print(f"      - {p}")
+    print(
+        f"planned {len(tasks)} tasks in {project_id} "
+        f"(seeded={len(seeded)} skipped={len(skipped)})"
+    )
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     project_id = args.project_id
     task_id = args.task_id
@@ -314,6 +374,17 @@ def main(argv: list[str] | None = None) -> int:
     p_real.add_argument("project_id")
     p_real.add_argument("task_id")
     p_real.set_defaults(func=cmd_run)
+
+    p_plan = sub.add_parser(
+        "plan",
+        help="decompose requirement.md into tasks via Codex (seeds PENDING tasks)",
+    )
+    p_plan.add_argument("project_id")
+    p_plan.add_argument(
+        "--force", action="store_true",
+        help="overwrite tasks that already exist",
+    )
+    p_plan.set_defaults(func=cmd_plan)
 
     p_task = sub.add_parser("task", help="manage tasks in a project")
     task_sub = p_task.add_subparsers(dest="task_cmd", required=True)
