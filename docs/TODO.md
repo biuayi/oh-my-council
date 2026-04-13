@@ -22,14 +22,14 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 ## 预算与观测
 
-- [ ] 预算预警 (非硬停): 到达 80% 时发提醒, 不中断
+- [x] 预算预警 (非硬停): 到达 80% 时发提醒, 不中断 ✅ (`BudgetTracker.record_cost` 在跨越阈值时向 stderr 发一次 WARNING)
 - [ ] 每日/每周预算汇总报表 (跨项目)
 - [ ] 模型调用成本分摊: 按 project / milestone / task 出账
 
 ## 模型与 provider
 
 - [ ] Worker 模型性能 A/B 自动比分: 同一 spec 交给 GLM5 / Gemini / MiniMAX, Codex review 谁通过率高谁优先级高
-- [ ] Provider failover: 某家 API 429/5xx 自动切到备选
+- [x] Provider failover: 某家 API 429/5xx 自动切到备选 ✅ (`OMC_WORKER_FALLBACK_*` 环境变量，worker/auditor 在 primary 抛异常时走 fallback)
 - [ ] 本地模型接入 (Ollama / vllm) 用于安全审计等低敏任务
 
 ## 审计与安全
@@ -46,7 +46,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 ## 跨项目与分享
 
-- [ ] 全局 `index.sqlite3` 增加统计查询命令 (`omc stats`)
+- [x] 全局 `index.sqlite3` 增加统计查询命令 (`omc stats`) ✅ 展示每项目 task 状态计数 + 项目 USD 支出 + 全局汇总
 - [ ] 项目归档: 把 `docs/projects/<id>/` 打包成 tarball, 包含完整可重放历史
 - [ ] 项目导入/导出: 从别人归档的 tarball 恢复 (用于分享调试样例)
 

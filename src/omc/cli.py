@@ -339,6 +339,54 @@ def cmd_budget(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stats(args: argparse.Namespace) -> int:
+    """Cross-project rollup: task counts by status + USD spend."""
+    docs = _docs_root(args)
+    idx = IndexStore(docs / "index.sqlite3")
+    projects = idx.list_projects()
+    if not projects:
+        print("no projects found under docs/")
+        return 0
+
+    header = f"{'project':<40}  {'status':<10}  {'tasks':>20}  {'cost':>10}"
+    print(header)
+    print("-" * len(header))
+    total_cost = 0.0
+    total_tasks = {"pending": 0, "running": 0, "done": 0, "blocked": 0}
+    for p in projects:
+        project_root = docs / "projects" / p.id
+        db = project_root / "council.sqlite3"
+        if not db.exists():
+            print(f"{p.id:<40}  {p.status.value:<10}  {'(no db yet)':>20}")
+            continue
+        ps = ProjectStore(db)
+        cost = ps.project_cost_usd(p.id)
+        total_cost += cost
+        counts = {"pending": 0, "running": 0, "done": 0, "blocked": 0}
+        for t in ps.list_tasks():
+            s = t.status.value
+            if s in ("pending", "running"):
+                counts[s] += 1
+            elif s in ("accepted", "audit_passed", "review_passed"):
+                counts["done"] += 1
+            else:
+                counts["blocked"] += 1
+        for k, v in counts.items():
+            total_tasks[k] += v
+        summary = (
+            f"p={counts['pending']} r={counts['running']} "
+            f"d={counts['done']} b={counts['blocked']}"
+        )
+        print(f"{p.id:<40}  {p.status.value:<10}  {summary:>20}  ${cost:>8.4f}")
+    print("-" * len(header))
+    tot = (
+        f"p={total_tasks['pending']} r={total_tasks['running']} "
+        f"d={total_tasks['done']} b={total_tasks['blocked']}"
+    )
+    print(f"{'TOTAL':<40}  {'':<10}  {tot:>20}  ${total_cost:>8.4f}")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     project_root = _docs_root() / "projects" / args.project_id
     if not project_root.exists():
@@ -420,6 +468,11 @@ def main(argv: list[str] | None = None) -> int:
     p_budget = sub.add_parser("budget", help="show project USD spend vs L4 limit")
     p_budget.add_argument("slug", help="project slug")
     p_budget.set_defaults(func=cmd_budget)
+
+    p_stats = sub.add_parser(
+        "stats", help="cross-project rollup: tasks by status + USD spend"
+    )
+    p_stats.set_defaults(func=cmd_stats)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -6,6 +6,7 @@ Phase 2 wires these into Dispatcher for actual enforcement.
 
 from __future__ import annotations
 
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -25,6 +26,7 @@ class BudgetTracker:
         self._codex_attempts: dict[str, int] = defaultdict(int)
         self._tokens: dict[str, int] = defaultdict(int)
         self._cost: float = 0.0
+        self._warned_80: bool = False
 
     def record_attempt(self, task_id: str) -> None:
         self._attempts[task_id] += 1
@@ -36,7 +38,21 @@ class BudgetTracker:
         self._tokens[task_id] += n
 
     def record_cost(self, usd: float) -> None:
+        prev = self._cost
         self._cost += usd
+        # Emit a one-shot 80% warning when crossing the threshold. Doesn't
+        # interrupt the run — purely informational so unattended sessions
+        # get a chance to notice spend before L4 hard-stops.
+        threshold = 0.8 * self.limits.l4_project_usd
+        if prev < threshold <= self._cost and not self._warned_80:
+            self._warned_80 = True
+            pct = 100 * self._cost / self.limits.l4_project_usd
+            print(
+                f"[budget] WARNING project cost ${self._cost:.4f} crossed 80% "
+                f"of L4 limit ${self.limits.l4_project_usd:.2f} "
+                f"(at {pct:.1f}%)",
+                file=sys.stderr, flush=True,
+            )
 
     def attempts(self, task_id: str) -> int:
         return self._attempts[task_id]
