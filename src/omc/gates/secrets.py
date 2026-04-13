@@ -7,8 +7,11 @@ to plausibly be a secret.
 """
 from __future__ import annotations
 
+import json
 import math
+import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,10 +79,51 @@ def _redact(val: str) -> str:
     return f"{val[:3]}...{val[-3:]}"
 
 
-def scan_text(text: str, path: str = "<string>") -> list[Finding]:
+def load_extra_rules(
+    path: Path | str | None = None,
+) -> tuple[tuple[str, re.Pattern[str]], ...]:
+    """Load user-defined regex rules from a JSON file.
+
+    File format: a list of {"name": str, "pattern": str} objects. If `path`
+    is None, reads OMC_SECRETS_RULES env var. Missing/empty path returns an
+    empty tuple. Invalid rules are warned to stderr but don't abort.
+    """
+    src = path
+    if src is None:
+        src = os.environ.get("OMC_SECRETS_RULES", "").strip() or None
+    if not src:
+        return ()
+    p = Path(src)
+    if not p.exists():
+        print(f"[secrets] extra rules file not found: {p}", file=sys.stderr)
+        return ()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[secrets] failed to load {p}: {e}", file=sys.stderr)
+        return ()
+    out: list[tuple[str, re.Pattern[str]]] = []
+    for i, item in enumerate(data or []):
+        name = (item.get("name") or f"custom_{i}") if isinstance(item, dict) else None
+        pattern = item.get("pattern") if isinstance(item, dict) else None
+        if not name or not pattern:
+            print(f"[secrets] skipping rule #{i}: missing name/pattern", file=sys.stderr)
+            continue
+        try:
+            out.append((name, re.compile(pattern)))
+        except re.error as e:
+            print(f"[secrets] skipping rule {name!r}: bad regex ({e})", file=sys.stderr)
+    return tuple(out)
+
+
+def scan_text(
+    text: str, path: str = "<string>",
+    extra_rules: tuple[tuple[str, re.Pattern[str]], ...] | None = None,
+) -> list[Finding]:
     findings: list[Finding] = []
+    patterns = _SECRET_PATTERNS + (extra_rules or ())
     for i, line in enumerate(text.splitlines(), start=1):
-        for name, pat in _SECRET_PATTERNS:
+        for name, pat in patterns:
             m = pat.search(line)
             if m:
                 findings.append(Finding(
@@ -112,14 +156,25 @@ def _should_skip(path: Path) -> bool:
     return path.suffix.lower() in _SKIP_SUFFIXES
 
 
-def scan_paths(root: Path, paths: list[Path] | None = None) -> list[Finding]:
-    """Walk `paths` (default: all files under `root`) and scan each file."""
+def scan_paths(
+    root: Path, paths: list[Path] | None = None,
+    extra_rules: tuple[tuple[str, re.Pattern[str]], ...] | None = None,
+) -> list[Finding]:
+    """Walk `paths` (default: all files under `root`) and scan each file.
+
+    If `extra_rules` is None, loads extras from `OMC_SECRETS_RULES` on each
+    call — that's the "hot-reload" mechanism: edit the JSON, next scan
+    picks up the new rules without restarting anything.
+    """
     root = root.resolve()
     targets: list[Path]
     if paths is None:
         targets = [p for p in root.rglob("*") if p.is_file()]
     else:
         targets = [p if p.is_absolute() else (root / p) for p in paths]
+
+    if extra_rules is None:
+        extra_rules = load_extra_rules()
 
     findings: list[Finding] = []
     for p in targets:
@@ -134,6 +189,6 @@ def scan_paths(root: Path, paths: list[Path] | None = None) -> list[Finding]:
             continue
         if len(text) > 2_000_000:  # skip >2MB files
             continue
-        for f in scan_text(text, path=str(rel)):
+        for f in scan_text(text, path=str(rel), extra_rules=extra_rules):
             findings.append(f)
     return findings

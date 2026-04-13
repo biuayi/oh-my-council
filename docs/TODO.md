@@ -34,7 +34,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 ## 审计与安全
 
-- [ ] 安全审计规则热更新 (YAML 规则库, 不重启 orchestrator)
+- [x] 安全审计规则热更新: `OMC_SECRETS_RULES=path/to/rules.json` — `scan_paths` 每次调用自动 re-load，JSON 格式 `[{"name":..., "pattern": regex}, ...]`，无效规则 warn 跳过不中断 ✅ (YAML 延后，JSON 无需外部依赖)
 - [ ] 沙箱分级: 普通 worker 只读, Codex 下场有限可写, 只有 accepted 任务才能进入主工作树
 - [x] 敏感信息扫描: `omc scan [project_id|--path]` — regex (AWS/OpenAI/Anthropic/JWT/SSH private key/GitHub PAT) + 高熵赋值检查；跳过 node_modules/.venv/dist 等 ✅
 

@@ -136,6 +136,21 @@ Runtime artifacts (sqlite, workspace, tasks/milestones md) are
 gitignored. Anything inside `docs/projects/*/` that could contain LLM
 prompt/response bodies is excluded by default.
 
+### Custom secret-scan rules (hot-reload)
+
+Point `OMC_SECRETS_RULES` at a JSON file with extra regexes:
+
+```json
+[
+  {"name": "company_token", "pattern": "\\bACME-[A-Z0-9]{10}\\b"},
+  {"name": "internal_pat",  "pattern": "\\bintpat_[A-Za-z0-9]{30,}\\b"}
+]
+```
+
+Each `omc scan` run re-reads the file — no restart needed. Invalid
+regexes or missing keys are warned to stderr and skipped rather than
+aborting the scan.
+
 ### Local-model providers (Ollama / vllm)
 
 The provider chain is transport-agnostic — any OpenAI-compatible HTTP
