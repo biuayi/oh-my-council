@@ -20,8 +20,10 @@ class Limits:
 
 
 class BudgetTracker:
-    def __init__(self, limits: Limits):
+    def __init__(self, limits: Limits, *, project_id: str | None = None, notifier=None):
         self.limits = limits
+        self.project_id = project_id
+        self.notifier = notifier
         self._attempts: dict[str, int] = defaultdict(int)
         self._codex_attempts: dict[str, int] = defaultdict(int)
         self._tokens: dict[str, int] = defaultdict(int)
@@ -53,6 +55,13 @@ class BudgetTracker:
                 f"(at {pct:.1f}%)",
                 file=sys.stderr, flush=True,
             )
+            if self.notifier is not None and getattr(self.notifier, "enabled", False):
+                self.notifier.budget_warn(
+                    project_id=self.project_id or "<unknown>",
+                    spend_usd=self._cost,
+                    limit_usd=self.limits.l4_project_usd,
+                    pct=pct,
+                )
 
     def attempts(self, task_id: str) -> int:
         return self._attempts[task_id]

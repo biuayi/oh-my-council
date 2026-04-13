@@ -17,10 +17,13 @@ from omc.clients.base import Auditor, CodexClient, ReviewOutput, WorkerRunner
 from omc.gates.hallucination import check_symbols
 from omc.gates.path_whitelist import check_paths
 from omc.gates.syntax import check_syntax
-from omc.models import Interaction
+from omc.models import Interaction, TaskStatus
+from omc.notify import Notifier
 from omc.state import StateEvent, next_state
 from omc.store.md import MDLayout
 from omc.store.project import ProjectStore
+
+_TERMINAL_STATES = {TaskStatus.ACCEPTED, TaskStatus.BLOCKED}
 
 
 def _stage(label: str, detail: str = "") -> None:
@@ -39,6 +42,7 @@ class DispatcherDeps:
     auditor: Auditor
     budget: BudgetTracker
     project_source_root: Path  # where worker-produced files actually land
+    notifier: Notifier | None = None  # unattended-mode webhook; None = disabled
 
 
 class Dispatcher:
@@ -462,6 +466,7 @@ class Dispatcher:
         return written
 
     def _transition(self, task, event: StateEvent) -> None:
+        prev_status = task.status
         new_status = next_state(task.status, event)
         task.status = new_status
         task.attempts = self.deps.budget.attempts(task.id)
@@ -470,6 +475,17 @@ class Dispatcher:
         task.cost_usd = self.deps.store.task_cost_usd(task.id)
         task.updated_at = datetime.now()
         self.deps.store.upsert_task(task)
+        if (
+            new_status in _TERMINAL_STATES
+            and new_status != prev_status
+            and self.deps.notifier is not None
+            and self.deps.notifier.enabled
+        ):
+            self.deps.notifier.task_terminal(
+                project_id=task.project_id, task_id=task.id,
+                status=new_status.value, cost_usd=task.cost_usd or 0.0,
+                attempts=task.attempts, reason=event.name,
+            )
 
     def _record(
         self,

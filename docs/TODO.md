@@ -42,7 +42,7 @@ MVP (β) 见 `docs/superpowers/specs/2026-04-12-oh-my-council-design.md`。
 
 - [ ] Web UI (最基础: project 列表 + task 状态板 + 实时日志)
 - [ ] TUI (textual/ratatui) 作为 `omc tmux` 的升级版
-- [ ] Slack / 企业微信通知 (里程碑完成 / 需人裁决时提醒)
+- [x] Slack / 企业微信通知: `OMC_NOTIFY_WEBHOOK_URL` 指向任何兼容 `{"text":"..."}` 的 webhook，任务终态 (ACCEPTED/BLOCKED) + 预算 80% 跨线时推送 ✅
 
 ## 跨项目与分享
 

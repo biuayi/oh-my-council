@@ -136,6 +136,17 @@ Runtime artifacts (sqlite, workspace, tasks/milestones md) are
 gitignored. Anything inside `docs/projects/*/` that could contain LLM
 prompt/response bodies is excluded by default.
 
+### Unattended mode notifications
+
+Set `OMC_NOTIFY_WEBHOOK_URL` in your env file (or the shell) to any
+endpoint that accepts `POST {"text": "..."}` — Slack incoming webhooks,
+企业微信 robot, Discord `/slack` endpoints all work. Events fired:
+
+- Task transitions to ACCEPTED or BLOCKED
+- Project cost crosses 80 % of the L4 USD limit (once per run)
+
+Unset the variable to disable notifications entirely.
+
 ## Releasing
 
 Tag a commit with `vX.Y.Z` and push. The `release.yml` workflow will:

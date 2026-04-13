@@ -23,6 +23,7 @@ from omc.config import load_settings
 from omc.dispatcher import Dispatcher, DispatcherDeps
 from omc.mcp_server import run_stdio
 from omc.models import Project, ProjectStatus, Task, TaskStatus
+from omc.notify import Notifier
 from omc.store.index import IndexStore
 from omc.store.md import MDLayout
 from omc.store.project import ProjectStore
@@ -227,8 +228,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         ),
         worker=LiteLLMWorker(settings),
         auditor=LiteLLMAuditor(settings),
-        budget=BudgetTracker(Limits()),
+        budget=BudgetTracker(Limits(), project_id=project_id, notifier=Notifier()),
         project_source_root=workspace,
+        notifier=Notifier(),
     )
     Dispatcher(deps).run_once(task_id, requirement=md.read_requirement())
     got = store.get_task(task_id)

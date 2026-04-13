@@ -212,6 +212,7 @@ def _omc_run_impl(*, docs_root: Path, project_id: str, task_id: str) -> dict:
     from omc.clients.real_worker import LiteLLMWorker
     from omc.config import load_settings
     from omc.dispatcher import Dispatcher, DispatcherDeps
+    from omc.notify import Notifier
 
     project_root = docs_root / "projects" / project_id
     if not project_root.exists():
@@ -236,8 +237,9 @@ def _omc_run_impl(*, docs_root: Path, project_id: str, task_id: str) -> dict:
         ),
         worker=LiteLLMWorker(settings),
         auditor=LiteLLMAuditor(settings),
-        budget=BudgetTracker(Limits()),
+        budget=BudgetTracker(Limits(), project_id=project_id, notifier=Notifier()),
         project_source_root=workspace,
+        notifier=Notifier(),
     )
     Dispatcher(deps).run_once(task_id, requirement=md.read_requirement())
     got = store.get_task(task_id)
