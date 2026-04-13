@@ -12,7 +12,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from omc.models import Project, ProjectStatus
+from omc.models import Project, ProjectStatus, Task, TaskStatus
 from omc.store.index import IndexStore
 from omc.store.md import MDLayout
 from omc.store.project import ProjectStore
@@ -135,6 +135,153 @@ def _omc_budget_impl(docs_root: Path, slug: str) -> dict:
     }
 
 
+def _omc_plan_impl(*, docs_root: Path, project_id: str, force: bool = False) -> dict:
+    from omc.clients.codex_cli import CodexCLI
+    from omc.clients.real_codex import RealCodexClient
+    from omc.config import load_settings
+
+    project_root = docs_root / "projects" / project_id
+    if not project_root.exists():
+        return {"error": f"project not found: {project_id}"}
+    md = MDLayout(project_root)
+    requirement = md.read_requirement()
+    if not requirement.strip():
+        return {"error": "requirement.md is empty — write it first"}
+
+    settings = load_settings()
+    codex = RealCodexClient(
+        cli=CodexCLI(
+            bin=settings.codex_bin,
+            timeout_s=settings.codex_timeout_s,
+            reasoning_effort=settings.codex_reasoning_effort,
+        ),
+        workspace_root=project_root / "workspace",
+    )
+    tasks = codex.produce_plan(requirement)
+    store = ProjectStore(project_root / "council.sqlite3")
+    now = datetime.now()
+    seeded: list[str] = []
+    skipped: list[str] = []
+    for t in tasks:
+        tid = t["task_id"]
+        if store.get_task(tid) is not None and not force:
+            skipped.append(tid)
+            continue
+        store.upsert_task(
+            Task(
+                id=tid, project_id=project_id,
+                md_path=f"tasks/{tid}.md",
+                status=TaskStatus.PENDING,
+                path_whitelist=t["path_whitelist"],
+                created_at=now, updated_at=now,
+            )
+        )
+        seeded.append(tid)
+    return {"project_id": project_id, "seeded": seeded, "skipped": skipped, "tasks": tasks}
+
+
+def _omc_task_add_impl(
+    *, docs_root: Path, project_id: str, task_id: str,
+    path_whitelist: list[str], force: bool = False,
+) -> dict:
+    project_root = docs_root / "projects" / project_id
+    if not project_root.exists():
+        return {"error": f"project not found: {project_id}"}
+    store = ProjectStore(project_root / "council.sqlite3")
+    if store.get_task(task_id) is not None and not force:
+        return {"error": f"task {task_id} already exists (pass force=true to overwrite)"}
+    now = datetime.now()
+    store.upsert_task(
+        Task(
+            id=task_id, project_id=project_id,
+            md_path=f"tasks/{task_id}.md",
+            status=TaskStatus.PENDING,
+            path_whitelist=list(path_whitelist),
+            created_at=now, updated_at=now,
+        )
+    )
+    return {"task_id": task_id, "project_id": project_id, "path_whitelist": list(path_whitelist)}
+
+
+def _omc_run_impl(*, docs_root: Path, project_id: str, task_id: str) -> dict:
+    """Run a task through the REAL pipeline (spec → write → review → audit)."""
+    from omc.budget import BudgetTracker, Limits
+    from omc.clients.codex_cli import CodexCLI
+    from omc.clients.real_auditor import LiteLLMAuditor
+    from omc.clients.real_codex import RealCodexClient
+    from omc.clients.real_worker import LiteLLMWorker
+    from omc.config import load_settings
+    from omc.dispatcher import Dispatcher, DispatcherDeps
+
+    project_root = docs_root / "projects" / project_id
+    if not project_root.exists():
+        return {"error": f"project not found: {project_id}"}
+    md = MDLayout(project_root)
+    store = ProjectStore(project_root / "council.sqlite3")
+    if store.get_task(task_id) is None:
+        return {"error": f"task not found: {task_id}"}
+
+    settings = load_settings()
+    workspace = project_root / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    deps = DispatcherDeps(
+        store=store, md=md,
+        codex=RealCodexClient(
+            cli=CodexCLI(
+                bin=settings.codex_bin,
+                timeout_s=settings.codex_timeout_s,
+                reasoning_effort=settings.codex_reasoning_effort,
+            ),
+            workspace_root=workspace,
+        ),
+        worker=LiteLLMWorker(settings),
+        auditor=LiteLLMAuditor(settings),
+        budget=BudgetTracker(Limits()),
+        project_source_root=workspace,
+    )
+    Dispatcher(deps).run_once(task_id, requirement=md.read_requirement())
+    got = store.get_task(task_id)
+    return {
+        "task_id": task_id,
+        "status": got.status.name if got else "MISSING",
+        "attempts": got.attempts if got else 0,
+        "tokens_used": got.tokens_used if got else 0,
+        "cost_usd": round(store.task_cost_usd(task_id), 6),
+    }
+
+
+def _omc_stats_impl(*, docs_root: Path) -> dict:
+    idx = IndexStore(docs_root / "index.sqlite3")
+    projects = idx.list_projects()
+    rows: list[dict] = []
+    total_cost = 0.0
+    totals = {"pending": 0, "running": 0, "done": 0, "blocked": 0}
+    for p in projects:
+        db = docs_root / "projects" / p.id / "council.sqlite3"
+        if not db.exists():
+            rows.append({"project_id": p.id, "status": p.status.value, "cost_usd": 0.0})
+            continue
+        ps = ProjectStore(db)
+        cost = ps.project_cost_usd(p.id)
+        total_cost += cost
+        counts = {"pending": 0, "running": 0, "done": 0, "blocked": 0}
+        for t in ps.list_tasks():
+            s = t.status.value
+            if s in ("pending", "running"):
+                counts[s] += 1
+            elif s in ("accepted", "audit_passed", "review_passed"):
+                counts["done"] += 1
+            else:
+                counts["blocked"] += 1
+        for k, v in counts.items():
+            totals[k] += v
+        rows.append({
+            "project_id": p.id, "status": p.status.value,
+            "tasks": counts, "cost_usd": round(cost, 6),
+        })
+    return {"projects": rows, "totals": totals, "total_cost_usd": round(total_cost, 6)}
+
+
 def _omc_verify_impl(*, docs_root: Path, project_id: str) -> dict:
     project_root = docs_root / "projects" / project_id
     if not project_root.exists():
@@ -187,6 +334,33 @@ def build_server(docs_root: Path | None = None) -> FastMCP:
         """Return project USD spend vs L4 limit + per-agent breakdown."""
         return _omc_budget_impl(root, slug)
 
+    @app.tool()
+    def omc_plan(project_id: str, force: bool = False) -> dict:
+        """Decompose requirement.md into tasks via Codex; seed them PENDING."""
+        return _omc_plan_impl(docs_root=root, project_id=project_id, force=force)
+
+    @app.tool()
+    def omc_task_add(
+        project_id: str, task_id: str, path_whitelist: list[str],
+        force: bool = False,
+    ) -> dict:
+        """Manually seed a PENDING task with an explicit path_whitelist."""
+        return _omc_task_add_impl(
+            docs_root=root, project_id=project_id, task_id=task_id,
+            path_whitelist=path_whitelist, force=force,
+        )
+
+    @app.tool()
+    def omc_run(project_id: str, task_id: str) -> dict:
+        """Run a task through the REAL pipeline (spec → write → review → audit).
+        Uses the provider chain from Settings (primary → fallback)."""
+        return _omc_run_impl(docs_root=root, project_id=project_id, task_id=task_id)
+
+    @app.tool()
+    def omc_stats() -> dict:
+        """Cross-project rollup: per-project task-state counts + USD spend."""
+        return _omc_stats_impl(docs_root=root)
+
     @app.prompt(name="omc_new")
     def _prompt_omc_new(slug: str) -> str:
         """Start a new oh-my-council project."""
@@ -194,9 +368,13 @@ def build_server(docs_root: Path | None = None) -> FastMCP:
                 f"Then open `docs/projects/<id>/requirement.md` for the user to edit.")
 
     @app.prompt(name="omc_plan")
-    def _prompt_omc_plan() -> str:
-        """(Phase 3b) Trigger Codex to produce task specs from requirement.md."""
-        return "Not yet implemented — scheduled for Phase 3b (CCB bridge)."
+    def _prompt_omc_plan(project_id: str) -> str:
+        """Trigger Codex to decompose requirement.md into PENDING tasks."""
+        return (
+            f"Call the `omc_plan` tool with project_id=`{project_id}`. "
+            f"Then call `omc_status` to list the seeded tasks, and suggest "
+            f"running `omc_run` per task_id to execute the pipeline."
+        )
 
     @app.prompt(name="omc_start")
     def _prompt_omc_start(project_id: str, task_id: str) -> str:
